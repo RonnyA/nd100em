@@ -82,195 +82,225 @@ void Default_IO(ushort ioadd) {
 void Floppy_IO(ushort ioadd) {
 	int s;
 	int a = ioadd & 0x07;
+	int i;
+	int old_irq;
+	bool trigger_floppy_thread = 0;
 	ushort tmp;
 	struct floppy_data *dev = iodata[ioadd];
 	if (debug) fprintf(debugfile,"Floppy_IO: IOX %d - A=%d\n",ioadd,gA);
 	fflush(debugfile);
-	switch(a) {
-	case 0: /* IOX RDAD - Read data buffer */
-		while ((s = sem_wait(&sem_io)) == -1 && errno == EINTR) /* wait for io lock to be free and take it */
-			continue; /* Restart if interrupted by handler */
+	
 
-		if (dev->bufptr >= 0 && dev->bufptr < FDD_BUFSIZE) {
+	while ((s = sem_wait(&sem_io)) == -1 && errno == EINTR) /* wait for io lock to be free and take it */
+		continue; /* Restart if interrupted by handler */
+
+	trigger_floppy_thread = 0;
+
+	//if (a & 0x01) printf("Floppy WRITE %d  (%X)\r\n",a, (gA & 0xFFFF));
+	switch(a) 
+	{
+		case 0: /* IOX RDAD - Read data buffer */
+			//printf("R");
 			gA = dev->buff[dev->bufptr];
-			dev->bufptr++;
-			if(dev->bufptr >= FDD_BUFSIZE)
-				dev->bufptr = 0;
-		}
+			dev->bufptr = (dev->bufptr +1) & FDD_BUFFER_MAX;	
+			break;
 
-		if (sem_post(&sem_io) == -1) { /* release io lock */
-			if (debug) fprintf(debugfile,"ERROR!!! sem_post failure Floppy_IO\n");
-			CurrentCPURunMode = SHUTDOWN;
-		}
-		break;
-	case 1: /* IOX WDAT - Write data buffer */
-		while ((s = sem_wait(&sem_io)) == -1 && errno == EINTR) /* wait for io lock to be free and take it */
-			continue; /* Restart if interrupted by handler */
+		case 1: /* IOX WDAT - Write data buffer */
 
-		if (dev->bufptr>=0 && dev->bufptr<FDD_BUFSIZE) {
 			dev->buff[dev->bufptr] = gA;
-			dev->bufptr++;
-			if(dev->bufptr >= FDD_BUFSIZE)
+			dev->bufptr = (dev->bufptr +1) & FDD_BUFFER_MAX;
+			break;
+
+		case 2: /* IOX RSR1 - Read status register No. 1 */
+
+			gA = 0; /* Put A in consistent state */
+			gA |= (dev->irq_en) ? (1<<1) : 0;	/* IRQ enabled (bit 1)*/
+			gA |= (dev->busy) ? (1<<2) : 0;		/* Device is busy */
+			gA |= (dev->ready_for_transfer) ? (1<<3) : 0;		/* Ready for transfer */		
+
+			if (dev->drive_not_rdy || dev->write_protect ||dev->missing) gA |= (1<<4);	/* inclusive or of error =>check STS reg 2 */
+
+
+			gA |= (dev->record_deleted) ? (1<<5) : 0;	/* Deleted record */
+			gA |= (dev->rw_complete) ? (1<<6) : 0;	/* ReadWrite complete */
+			gA |= (dev->seek_complete) ? (1<<7) : 0;	/* Seek Complete */
+
+			if (debug) fprintf(debugfile,"Floppy_IO: IOX %o RSR1 - A=%04x\n",ioadd,gA);
+			break;
+
+		case 3: /* IOX WCWD - Write control word */		
+			if (debug) fprintf(debugfile,"IOX 1563 - Write Control Word...\n");
+
+			old_irq = dev->irq_en;			
+			dev->irq_en = (gA >> 1) & 0x01;
+			if (dev->irq_en && !old_irq)
+			{
+				floppy_interrupt(dev);
+			}
+
+			if ((gA >> 3) & 0x01) {
+				dev->test_mode = 1;
+			}
+			if ((gA >> 4) & 0x01) {		/* Device clear */
+				//dev->unit_select = -1;
 				dev->bufptr = 0;
-		}
-
-		if (sem_post(&sem_io) == -1) { /* release io lock */
-			if (debug) fprintf(debugfile,"ERROR!!! sem_post failure Floppy_IO\n");
-			CurrentCPURunMode = SHUTDOWN;
-		}
-		break;
-	case 2: /* IOX RSR1 - Read status register No. 1 */
-		while ((s = sem_wait(&sem_io)) == -1 && errno == EINTR) /* wait for io lock to be free and take it */
-			continue; /* Restart if interrupted by handler */
-
-		gA = 0; /* Put A in consistent state */
-		gA |= (dev->irq_en) ? (1<<1) : 0;	/* IRQ enabled (bit 1)*/
-		gA |= (dev->busy) ? (1<<2) : 0;		/* Device is busy */
-		gA |= (dev->sense) ? (1<<4) : 0;	/* interrupt set, check STS reg 2 */
-
-		if (debug) fprintf(debugfile,"Floppy_IO: IOX %o RSR1 - A=%04x\n",ioadd,gA);
-
-		if (sem_post(&sem_io) == -1) { /* release io lock */
-			if (debug) fprintf(debugfile,"ERROR!!! sem_post failure Floppy_IO\n");
-			CurrentCPURunMode = SHUTDOWN;
-		}
-		break;
-	case 3: /* IOX WCWD - Write control word */
-		while ((s = sem_wait(&sem_io)) == -1 && errno == EINTR) /* wait for io lock to be free and take it */
-			continue; /* Restart if interrupted by handler */
-
-		if ((gA >> 1) & 0x01) {
-			dev->irq_en = 1;
-		}
-		if ((gA >> 3) & 0x01) {
-			dev->test_mode = 1;
-		}
-		if ((gA >> 4) & 0x01) {		/* Device clear */
-			dev->selected_drive = -1;
-			dev->bufptr = 0;
-		}
-		if ((gA >> 5) & 0x01) {		/* Clear Interface buffer address */
-			dev->bufptr = 0;
-		}
-		if (gA & 0xff00) {
-			dev->busy = 1;
-			dev->command = ((gA & 0xff00 ) >>8);
-			/* TRIGGER FLOPPY THREAD */
-			if (sem_post(&sem_floppy) == -1) { /* release floppy lock */
-				if (debug) fprintf(debugfile,"ERROR!!! sem_floppy failure Floppy_IO\n");
-				CurrentCPURunMode = SHUTDOWN;
+				dev->ready_for_transfer=1;
+				
+				// Clear errors
+				dev->drive_not_rdy=0;
+				dev->write_protect=0;
+				dev->missing=0;
 			}
-
-		}
-
-		if (debug) fprintf(debugfile,"Floppy_IO: IOX %o WCWD - A=%04x\n",ioadd,gA);
-
-		if (sem_post(&sem_io) == -1) { /* release io lock */
-			if (debug) fprintf(debugfile,"ERROR!!! sem_post failure Floppy_IO\n");
-			CurrentCPURunMode = SHUTDOWN;
-		}
-		break;
-	case 4: /* IOX RSR2 - Read status register No. 2 */
-		while ((s = sem_wait(&sem_io)) == -1 && errno == EINTR) /* wait for io lock to be free and take it */
-			continue; /* Restart if interrupted by handler */
-
-		gA = 0; /* Put A in consistent state */
-		gA |= (dev->drive_not_rdy) ? (1<<8) : 0;	/* drive not ready (bit 8)*/
-		gA |= (dev->write_protect) ? (1<<9) : 0;	/* set if trying to write to write protected diskette (file) */
-		gA |= (dev->missing) ? (1<<11) : 0;		/* sector missing / no am */
-
-		if (debug) fprintf(debugfile,"Floppy_IO: IOX %o RSR2 - A=%04x\n",ioadd,gA);
-
-		if (sem_post(&sem_io) == -1) { /* release io lock */
-			if (debug) fprintf(debugfile,"ERROR!!! sem_post failure Floppy_IO\n");
-			CurrentCPURunMode = SHUTDOWN;
-		}
-		break;
-	case 5: /* IOX WDAD - Write Drive Address/ Write Difference */
-		while ((s = sem_wait(&sem_io)) == -1 && errno == EINTR) /* wait for io lock to be free and take it */
-			continue; /* Restart if interrupted by handler */
-
-		if (gA | 0x1) { /* Write drive address */
-			if (debug) fprintf(debugfile,"IOX 1565 - Write Drive Address...\n");
-			tmp = (gA >> 8) & 0x07;
-			if (tmp <4)
-				dev->selected_drive = tmp;
-			if ((gA >> 11) & 0x01)
-				dev->selected_drive = -1;
-			tmp = (gA >> 14) & 0x03;
-			switch (tmp) {
-			case 0:
-				if(dev->selected_drive != -1)
-					dev->unit[dev->selected_drive]->drive_format = 0;
-				break;
-			case 1:
-				if(dev->selected_drive != -1)
-					dev->unit[dev->selected_drive]->drive_format = 0;
-				break;
-			case 2:
-				if(dev->selected_drive != -1)
-					dev->unit[dev->selected_drive]->drive_format = 1;
-				break;
-			case 3:
-				if(dev->selected_drive != -1)
-					dev->unit[dev->selected_drive]->drive_format = 2;
-				break;
-			}
-		} else { /* Write difference */
-			if (debug) fprintf(debugfile,"IOX 1565 - Write Difference...\n");
-			tmp= (gA >> 8) & 0x7f;
-			if(dev->selected_drive != -1) {
-				dev->unit[dev->selected_drive]->diff_track = tmp;
-				dev->unit[dev->selected_drive]->dir_track = (gA >> 15 ) & 0x01;
-			}
-		}
-
-		if (sem_post(&sem_io) == -1) { /* release io lock */
-			if (debug) fprintf(debugfile,"ERROR!!! sem_post failure Floppy_IO\n");
-			CurrentCPURunMode = SHUTDOWN;
-		}
-		break;
-	case 6: /* Read Test */
-		while ((s = sem_wait(&sem_io)) == -1 && errno == EINTR) /* wait for io lock to be free and take it */
-			continue; /* Restart if interrupted by handler */
-
-		if (dev->bufptr>=0 && dev->bufptr<FDD_BUFSIZE) {
-			if (dev->bufptr_msb) {
-				dev->buff[dev->bufptr] = (dev->buff[dev->bufptr] & 0x00ff) | ((dev->test_byte << 8) & 0xff00);
-				dev->bufptr_msb = 0;
-				dev->bufptr++;
-			} else {
-				dev->buff[dev->bufptr] = (dev->buff[dev->bufptr] & 0xff00) | ((dev->test_byte) & 0x00ff);
-				dev->bufptr_msb = 1;
-			}
-			if(dev->bufptr >= FDD_BUFSIZE)
+			if ((gA >> 5) & 0x01) {		/* Clear Interface buffer address */
 				dev->bufptr = 0;
-		}
+				dev->ready_for_transfer=1;
+			}
+			if (gA & 0xff00) {
+				dev->busy= 1;
+				int tmp = ((gA & 0xff00 ) >>8);
+				for (i = 0; i < 8; i++)
+				{
+					if ((tmp & (1 << i)) != 0)
+					{
+						dev->command = i;
+						trigger_floppy_thread = 1;
+						break;
+					}
+				}			
+			}	
+			
+			if (debug) fprintf(debugfile,"Floppy_IO: IOX %o WCWD - A=%04x\n",ioadd,gA);
+			break;
 
-		if (sem_post(&sem_io) == -1) { /* release io lock */
-			if (debug) fprintf(debugfile,"ERROR!!! sem_post failure Floppy_IO\n");
-			CurrentCPURunMode = SHUTDOWN;
-		}
-		break;
-	case 7: /*IOX WSCT - Write Sector/ Write Test Byte */
-		while ((s = sem_wait(&sem_io)) == -1 && errno == EINTR) /* wait for io lock to be free and take it */
-			continue; /* Restart if interrupted by handler */
+		case 4: /* IOX RSR2 - Read status register No. 2 */
+			gA = 0; /* Put A in consistent state */
+			gA |= (dev->drive_not_rdy) ? (1<<8) : 0;	/* drive not ready (bit 8)*/
+			gA |= (dev->write_protect) ? (1<<9) : 0;	/* set if trying to write to write protected diskette (file) */
+			gA |= (dev->missing) ? (1<<11) : 0;		/* sector missing / no am */
 
-		if (dev->test_mode) {
-			dev->test_byte = (gA >>8) & 0xff;
-		} else {
-			dev->sector = (gA >> 8) & 0x7f;
-			dev->sector_autoinc = (gA>>15) &0x01;
-			/*TODO:: check ranges on sector based on floppy type selected */
-		}
+			if (debug) fprintf(debugfile,"Floppy_IO: IOX %o RSR2 - A=%04x\n",ioadd,gA);
 
-		if (sem_post(&sem_io) == -1) { /* release io lock */
-			if (debug) fprintf(debugfile,"ERROR!!! sem_post failure Floppy_IO\n");
-			CurrentCPURunMode = SHUTDOWN;
-		}
+			break;
+
+		case 5: /* IOX WDAD - Write Drive Address/ Write Difference */
+			if (gA & 0x1) 
+			{ 
+				/* Write drive address */
+				if (debug) fprintf(debugfile,"IOX 1565 - Write Drive Address...\n");
+
+				dev->unit_select = ((gA >> 8) & 0b11);				
+				dev->selected_format = ((gA >> 14) & 0x03);			
+
+				printf("Drive %d format %d\r\n",dev->unit_select, dev->selected_format );
+
+				//if (gA & 1<<11) // Clear selected drive
+				//	dev->unit_select = -1;					
+				
+				switch (dev->selected_format)
+				{
+					case 0:
+					case 1:
+						// IBM 3740
+						dev->bytes_pr_sector = 128;
+						dev->sectors_pr_track = 26;
+						break;
+					case 2:
+						// IBM 3600
+						dev->bytes_pr_sector = 256;
+						dev->sectors_pr_track = 15;
+						break;
+					case 3:
+						// IBM System 32-II
+						dev->bytes_pr_sector = 512;
+						dev->sectors_pr_track = 8;
+					break;
+				}
+
+			} 
+			else
+			{ 
+				/* Write difference */
+				if (debug) fprintf(debugfile,"IOX 1565 - Write Difference...\n");				
+
+				if(dev->unit_select != -1) {
+					dev->unit[dev->unit_select]->diff_track = (gA >> 8) & 0x7f; // 7 bits difference setting
+					dev->unit[dev->unit_select]->dir_track = (gA >> 15 ) & 0x01;
+					
+					// Auto seek to new track
+					if (dev->unit[dev->unit_select]->diff_track)
+					{
+						printf("Moving tracks. Diff %d  Direction %d\r\n",dev->unit[dev->unit_select]->diff_track,dev->unit[dev->unit_select]->dir_track);
+
+						if (dev->unit[dev->unit_select]->dir_track)
+						{
+							dev->unit[dev->unit_select]->curr_track += dev->unit[dev->unit_select]->diff_track;
+						}
+						else
+						{
+							dev->unit[dev->unit_select]->curr_track -= dev->unit[dev->unit_select]->diff_track;
+						}
+
+						if (dev->unit[dev->unit_select]->curr_track <0) dev->unit[dev->unit_select]->curr_track = 0;
+						if (dev->unit[dev->unit_select]->curr_track >76) dev->unit[dev->unit_select]->curr_track = 76;
+						
+						dev->unit[dev->unit_select]->diff_track = 0;  // Move done.
+					}
+				}
+			}
+
+			break;
+		case 6: /* Read Test */
+			if (dev->test_mode)
+			{
+				if (dev->bufptr_msb) {
+					dev->buff[dev->bufptr] = (dev->buff[dev->bufptr] & 0xff00) | ((dev->test_byte) & 0x00ff);				
+					dev->bufptr = (dev->bufptr +1) & FDD_BUFFER_MAX;
+					//Reset flip-flop
+					dev->bufptr_msb = 0;				
+
+				} else {
+					dev->buff[dev->bufptr] = (dev->buff[dev->bufptr] & 0x00ff) | ((dev->test_byte << 8) & 0xff00);
+					dev->bufptr_msb = 1;
+				}
+			}	
+			break;
+
+		case 7: /*IOX WSCT - Write Sector/ Write Test Byte */		
+			if (dev->test_mode) 
+			{
+				dev->test_byte = (gA >>8) & 0xff;
+			}
+			else
+			{
+				dev->sector = (gA >> 8) & 0x7f;
+				dev->sector_autoinc = (gA>>15) &0x01;
+				/*TODO:: check ranges on sector based on floppy type selected */
+			}
+
 		break;
 	}
+
+	//if (a!=0)
+	//	if (!(a & 0x01)) printf("Floppy READ %d  (%X)\r\n",a, (gA & 0xFFFF));
+
+	if (sem_post(&sem_io) == -1) { /* release io lock */
+		if (debug) fprintf(debugfile,"ERROR!!! sem_post failure Floppy_IO\n");
+		CurrentCPURunMode = SHUTDOWN;
+	}
+
+
+	if (trigger_floppy_thread )
+	{
+		/* TRIGGER FLOPPY THREAD */
+		if (sem_post(&sem_floppy) == -1) 
+		{ /* release floppy lock */
+			if (debug) fprintf(debugfile,"ERROR!!! sem_floppy failure Floppy_IO\n");
+			CurrentCPURunMode = SHUTDOWN;
+		}
+	}
 }
+
+
 
 /*
  * TODO:: Not having figured out exactly what these are supposed to do.
@@ -582,8 +612,22 @@ void floppy_init() {
 		if (ptr2) {
 			ptr->unit[2] = ptr2;
 		}
-	}
-	ptr->selected_drive = -1;	/* no drive selected at start */
+	}	
+
+	ptr->our_rnd_id=rand(); /* our unique identifier for not generating multiple idents on the same device, TODO: Check if needed*/
+
+	// Set default sector size
+	ptr->bytes_pr_sector = 256;
+	ptr->sectors_pr_track = 15;
+
+	// clear registers
+	ptr->bufptr =0;	
+	ptr->ready_for_transfer = 1;
+	ptr->test_mode = 0;
+	ptr->rw_complete=0;
+	ptr->seek_complete = 0;
+	ptr->record_deleted=0;	
+
 	IO_Data_Add(880,887,ptr);
 }
 
@@ -954,37 +998,246 @@ Floppy_IO: IOX 883 - A=2
 Floppy_IO: IOX 882 - A=10831
 Floppy_IO: IOX 882 - A=2
 */
-void floppy_thread(){
+void floppy_thread()
+{
 	int s;
 	struct floppy_data *dev;
+	FILE *floppy_file;
+	int position;
+	ushort read_word;
+	ushort tmp2;
+	int readcnt ;
+	
+	int transfer_word_count;	
+	int error;
 
-	while(CurrentCPURunMode != SHUTDOWN) {
+	// TODO: Get from config
+	char *floppyimage;
+	char loadtype[]="r+";
+
+
+	while(CurrentCPURunMode != SHUTDOWN) 
+	{
 		while ((s = sem_wait(&sem_floppy)) == -1 && errno == EINTR) /* wait for floppu lock to be free and take it */
 			continue; /* Restart if interrupted by handler */
+
 		/* Do our stuff now and then return and wait for next freeing of lock. */
 		dev = iodata[880];	/*TODO:: This is just a temporary solution!!! */
+		// Clear everything
 
 		while ((s = sem_wait(&sem_io)) == -1 && errno == EINTR) /* wait for io lock to be free and take it */
 			continue; /* Restart if interrupted by handler */
 
-		if (dev->busy) {
-			if(dev->command == 1) { 		/* CONTROL RESET */
-			} else if (dev->command == 1) {		/* RECALIBRATE */
-				/* track = 0, interrupt!, set status seek complete */
-			} else if (dev->command == 1) {		/* SEEK */
-				/* track = nn, interrupt!, set status seek complete */
-			} else if (dev->command == 1) {		/* READ ID */
-			} else if (dev->command == 1) {		/* READ DATA */
-			} else if (dev->command == 1) {		/* WRITE DATA */
-			} else if (dev->command == 1) {		/* WRITE DELETED DATA */
-			} else if (dev->command == 1) {		/* FORMAT TRACK */
+		// Only excute logic below after main thread flagged the device as busy
+		if (!dev->busy)
+		{
+			if (sem_post(&sem_io) == -1) 
+			{ /* release io lock */
+				if (debug) fprintf(debugfile,"ERROR!!! sem_post failure Floppy_IO\n");
+				CurrentCPURunMode = SHUTDOWN;
 			}
+			continue;;
+	
+		}		
+
+		// Execute command , only drive 0 is available
+		if (dev->unit_select!= 0)
+		{
+			dev->drive_not_rdy = 1;
+			dev->busy = 0;
+			printf("Drive not ready");
 		}
+		else
+		{			
+			// Clear flags
+			dev->ready_for_transfer=0;
+			dev->rw_complete=0;
+			dev->seek_complete = 0;
+			dev->record_deleted=0;
+			error = 0;
+
+			
+
+			floppyimage = dev->unit[dev->unit_select]->filename;
+
+			// Validate
+			if (dev->sector<=0)
+				dev->sector = 1; // Force a valid sector
+	
+			// Position insid file
+			position = ((dev->sector-1)*dev->bytes_pr_sector) + (dev->unit[dev->unit_select]->curr_track * dev->bytes_pr_sector * dev->sectors_pr_track);
+			transfer_word_count = dev->bytes_pr_sector >> 1;
+
+			printf("Executing command %d on drive %d. Position %d Sector %d Track %d [%d]\r\n",dev->command, dev->unit_select, position, dev->sector, dev->unit[dev->unit_select]->curr_track, dev->bufptr );
+
+			// Safely open image and seek			
+			if (floppyimage != NULL)
+			{
+				//printf("Opening %s\r\n", floppyimage);
+				floppy_file=fopen(floppyimage,loadtype);	
+
+				if (floppy_file==NULL)
+				{
+					//printf("File open failed %d\r\n",errno);
+					error++;
+				}
+				else
+				{
+					//printf("Seeking to  %d\r\n", position);
+					if (fseek(floppy_file,position,SEEK_SET) != 0)					
+						error ++;
+				}
+			}
+			else
+				error++;
+			
+
+			if (error)
+			{
+				//printf("Failed to open floppy image\r\n");
+				dev->missing=1;
+				dev->busy=0;
+			}
+			else
+			{				
+				switch(dev->command)
+				{
+					case 0: // FormatTrack
+							
+							break;
+					case 1: // WriteData
+							break;
+			
+					case 2: // WriteDeletedData
+							break;
+			
+					case 3: // ReadID
+							/*
+							if (SectorIsDeleted(dev->sector, dev->unit[dev->unit_select]->curr_track))
+							{
+								dev->buff[0] = 0xFF00;
+								dev->buff[1] = 0xFF01;
+
+							}
+							else
+							*/
+							{
+								dev->buff[0] = (ushort)(dev->unit[dev->unit_select]->curr_track);
+								dev->buff[1] = (ushort)((dev->sector ) | (0x01<<8));
+							}
+
+							break;
+			
+					case 4: // ReadData							
+							while (transfer_word_count > 0)
+							{
+								readcnt = fread(&read_word,1,2,floppy_file);
+								if (readcnt <=0)
+								{
+									dev->command = -1;
+									dev->missing=1;
+									dev->busy=0;
+									break; // Exit while loop									
+								}
+								else
+								{
+									// maybe swap hi/lo ?						
+									
+									tmp2=(read_word & 0xff00)>>8;
+									tmp2= tmp2 | ((read_word & 0x00ff) << 8);								
+									dev->buff[dev->bufptr] = (ushort)tmp2;
+									
+									//printf ("%X ", read_word);
+									//dev->buff[dev->bufptr] = (ushort)read_word;
+									dev->bufptr = (dev->bufptr + 1) & FDD_BUFFER_MAX;
+
+									transfer_word_count--;
+								}
+							}
+							//printf("\r\n");
+							break;
+			
+					case 5: // Seek
+							if (dev->sector <=0)
+							{
+								dev->missing = 1;
+							}
+							break;
+			
+					case 6: // Recalibrate,
+							dev->sector = 1;
+							dev->unit[dev->unit_select]->curr_track=0;
+							break;
+			
+					case 7: // ControlReset
+							break;		
+
+				}
+				fclose(floppy_file);
+				floppy_command_end(dev);
+			}			
+		}	
 
 		if (sem_post(&sem_io) == -1) { /* release io lock */
 			if (debug) fprintf(debugfile,"ERROR!!! sem_post failure Floppy_IO\n");
 			CurrentCPURunMode = SHUTDOWN;
 		}
+	}
+}
+
+void floppy_command_end(struct floppy_data *dev)
+{
+	mysleep(0,10000); // 10.000 us =>10 ms
+	dev->busy = 0;
+	dev->ready_for_transfer =1;
+	switch(dev->command)
+	{
+		case 5: // seek
+		case 6: // Recalibrate
+			dev->seek_complete = 1;
+			break;
+		default:
+			dev->rw_complete=1;	
+			break;
+	}
+	
+	if (dev->sector_autoinc)
+	{
+		if (dev->sector < dev->sectors_pr_track)
+		{
+			dev->sector++;
+		}
+	}
+
+	if (dev->irq_en)
+	{		
+		floppy_interrupt(dev);
+	}
+}
+
+void floppy_interrupt(struct floppy_data *dev)
+{
+	int s;
+	int ident = 0x11; // octal 21
+
+	//printf("IRQ 11\r\n");
+
+	if(CurrentCPURunMode != STOP) 
+	{
+		while ((s = sem_wait(&sem_int)) == -1 && errno == EINTR) /* wait for interrupt lock to be free */
+				continue;       /* Restart if interrupted by handler */
+		
+		gPID |= 0x800; /* Bit 11 */				
+		//interrupt(11,0);
+		AddIdentChain(11,ident,dev->our_rnd_id); /* Add interrupt to ident (o21) chain, lvl13, ident code 1, and identify us */
+		
+		if (sem_post(&sem_int) == -1) 
+		{ 
+			/* release interrupt lock */
+			if (debug) fprintf(debugfile,"ERROR!!! sem_post failure DOMCL\n");
+			CurrentCPURunMode = SHUTDOWN;
+		}
+		checkPK();
 	}
 }
 

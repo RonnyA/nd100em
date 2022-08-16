@@ -2725,6 +2725,9 @@ void DoIDENT(char priolevel) {
 	if (id) {
 		gA=id; /* Set A reg to ident code */
 		if (trace) trace_step(1,"A<=%06o",id);
+
+		if (priolevel!=13) // Dont trace RTC, its just to much
+			if (trace) trace_step(1,"A<=%06o",id);
 	} else {
 		if (debug) fprintf(debugfile,"DoIDENT IOX Error\n");
 		interrupt(14,1<<7); /* IOX Error if no IDENT code found */
