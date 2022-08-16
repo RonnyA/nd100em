@@ -8,3 +8,9 @@ for a few years now, and the domain has expired.
 Requirements
 [libconfig](http://www.hyperrealm.com/libconfig/libconfig.html) is required. 
 There is a FreeBSD port [devel/libconfig](https://www.freshports.org/devel/libconfig/).
+
+To install libconfig on Ubuntu:
+
+ > sudo apt-get update
+ 
+ > sudo apt-get install libconfig-dev 
