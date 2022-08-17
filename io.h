@@ -41,6 +41,7 @@ extern void RemThreadChain(struct ThreadChain * elem);
 
 extern sem_t sem_run;
 extern sem_t sem_stop;
+extern sem_t sem_int;
 
 /* OK here we have it, a 64K array of function pointers for iox/ioxt instructions */
 /* We still need to initialize it before using, thats the domain of Setup_IO_Handlers */
@@ -69,7 +70,8 @@ struct tty_io_data {
 
 struct tty_io_data (*tty_arr[256]); /* array of pointers to con_io_data structures we allocate */
 
-#define FDD_BUFSIZE 256
+#define FDD_BUFSIZE 1024
+#define FDD_BUFFER_MAX 0x3FF
 struct fdd_unit {
 	char *filename;
 	bool readonly;
@@ -81,24 +83,44 @@ struct fdd_unit {
 };
 
 struct floppy_data {
-	bool irq_en;			/* allow device interrupts */
+	
 	int unit_select;		/* actual fdd 0-2 */
 	ushort buff[FDD_BUFSIZE];	/* buffer for 1 sectors data. FIXME:: Check that this is like the real floppy controller do.*/
 	int bufptr;			/* buffer pointer */
 	bool bufptr_msb;		/* If we work with bytes, access to lsb or msb in buf... */
 	struct fdd_unit (*unit[3]);	/* fdd drive unit 0-2 pointers to private data */
 	int selected_drive;		/* selected fdd unit 0-2 = drive, -1=no drive*/
-	bool test_mode;
+	
 	unsigned char test_byte;
 	bool timeout_en;
+	
+	// Interrupt and IDENT tracking
+	int our_rnd_id;
+
+	// floppy structure
+	int selected_format;
+	int sectors_pr_track;
+	int bytes_pr_sector;
+
+
+	// Status flags
+	bool irq_en;			/* allow device interrupts */
+	bool test_mode;			/* device in test mode */
+	bool ready_for_transfer;
+	bool rw_complete;
+	bool seek_complete;
+	bool record_deleted;
 	bool sense;			/* error occured, check status reg 2 for details */
 	bool drive_not_rdy;		/* Set if drive is selected and drive has open door/no diskette (no attached file)*/
 	bool write_protect;		/* set if trying to write to write protected diskette (file) */
 	bool missing;			/* sector missing / no am */
-	bool busy;			/* processing a command */
+	bool busy;			/* processing a command */	
+	bool sector_autoinc;
+
+	// Command 
 	int command;			/* command to execute */
 	ushort sector;
-	bool sector_autoinc;
+	
 };
 
 struct hdd_10mb_unit {
@@ -135,6 +157,9 @@ void io_op (ushort ioadd);
 void Default_IO(ushort ioadd);
 void floppy_init();
 void Floppy_IO(ushort ioadd);
+void floppy_command_end(struct floppy_data *dev);
+void floppy_interrupt(struct floppy_data *dev);
+
 void Parity_Mem_IO(ushort ioadd);
 int mopc_in(char * chptr);
 void mopc_out(char ch);
