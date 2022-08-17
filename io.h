@@ -132,8 +132,31 @@ struct hawk_data {
 	int our_rnd_id;
 
 	// Flags
+
 	bool irq_rdy_en;	/* device ready for transfer enable */
-	bool irq_err_en;	/* error interrupt enable */
+	bool irq_err_en;	/* error interrupt enable */	
+	//bool interruptOnDeviceReady = false;
+	//bool interruptOnError = false;
+	bool deviceActive;
+	bool deviceReadyForTransfer;
+	bool transferComplete;
+	bool transferOn;
+	bool onCylinder;
+	bool writeFormat;
+	bool testMode;
+	bool fixedDrive;
+
+	// Errors
+	bool compareError;
+	bool hardwareError;
+
+	//  pointers
+	int coreAddress;
+	ushort wordCounter;
+	ushort sectorCounter; // wtf is this ?
+	int blockAddress;
+	int blockAddressHiBits;	
+
 	bool irq_rdy;
 	bool irq_err;
 	int unit_select;	/* actual hdd 0-3 */

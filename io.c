@@ -98,6 +98,7 @@ void Floppy_IO(ushort ioadd) {
 	trigger_floppy_thread = 0;
 
 	//if (a & 0x01) printf("Floppy WRITE %d  (%X)\r\n",a, (gA & 0xFFFF));
+
 	switch(a) 
 	{
 		case 0: /* IOX RDAD - Read data buffer */
@@ -144,6 +145,7 @@ void Floppy_IO(ushort ioadd) {
 				dev->test_mode = 1;
 			}
 			if ((gA >> 4) & 0x01) {		/* Device clear */
+				//printf("Device clear\r\n");
 				//dev->unit_select = -1;
 				dev->bufptr = 0;
 				dev->ready_for_transfer=1;
@@ -154,6 +156,7 @@ void Floppy_IO(ushort ioadd) {
 				dev->missing=0;
 			}
 			if ((gA >> 5) & 0x01) {		/* Clear Interface buffer address */
+				//printf("Clear interface buffer\r\n");
 				dev->bufptr = 0;
 				dev->ready_for_transfer=1;
 			}
@@ -459,7 +462,7 @@ void mopc_out(char ch) {
 	}
 }
 
-
+/* Block defining what byte has odd parity or not */
 bool oddParity[256] =
 {
 	0,1,1,0,1,0,0,1,1,0,0,1,0,1,1,0,
@@ -629,9 +632,8 @@ void Setup_IO_Handlers () {
 	IO_Handler_Add(192,199,&Console_IO,NULL);		/* Console terminal 300-307 octal */
 	IO_Handler_Add(880,887,&Floppy_IO,NULL);		/* Floppy Disk 1 at 1560-1567 octal */	
 	IO_Handler_Add(320,327,&HDD_10MB_IO,NULL);		/* Disk System I at 500-507 octal. , ident 01, interrupt 11*/	
-	floppy_init();
-
-	
+	floppy_init(); // removed init here, asits initialized from nd100lib.c
+	hawk_init();	
 }
 
 /*
@@ -702,8 +704,8 @@ void hawk_init()
 				ptr->unit[0]->filename = strdup(HAWK_IMAGE_NAME);
 				
 				/*
-				ptr->unit[0]->readonly = FDD_IMAGE_RO;
-				if (HDD_IMAGE_RO && ptr->unit[0]->filename) {
+				ptr->unit[0]->readonly = HAWK_IMAGE_RO;
+				if (HAWK_IMAGE_RO && ptr->unit[0]->filename) {
 					ptr->unit[0]->fp = fopen(HAWK_IMAGE_NAME, "r");
 				} else if(ptr->unit[0]->filename){
 					ptr->unit[0]->fp = fopen(_IMAGE_NAME, "r+");
@@ -1103,8 +1105,7 @@ void floppy_thread()
 	int transfer_word_count;	
 	int error;
 
-	char loadtype[]="r+";
-
+	char loadtype[]="r+";	
 
 	while(CurrentCPURunMode != SHUTDOWN) 
 	{
@@ -1134,7 +1135,8 @@ void floppy_thread()
 		if (dev->unit_select!= 0)  // TODO: should be ok for unit in range 0-2
 		{
 			dev->drive_not_rdy = 1;
-			dev->busy = 0;			
+			dev->busy = 0;	
+			error =-1;		
 		}
 		else
 		{			
@@ -1220,7 +1222,8 @@ void floppy_thread()
 							dev->buff[3] = 0x03;
 							break;
 			
-					case 4: // ReadData							
+					case 4: // ReadData						
+							//printf("WC=%d",transfer_word_count)	;
 							while (transfer_word_count > 0)
 							{
 								readcnt = fread(&read_word,1,2,floppy_file);
@@ -1267,8 +1270,7 @@ void floppy_thread()
 				{
 					fclose(floppy_file);
 					floppy_file = NULL;
-				}
-				floppy_command_end(dev);
+				}				
 			}			
 		}	
 
@@ -1276,17 +1278,32 @@ void floppy_thread()
 			if (debug) fprintf(debugfile,"ERROR!!! sem_post failure Floppy_IO\n");
 			CurrentCPURunMode = SHUTDOWN;
 		}
+
+		// Must run AFTER io-lock has been released to avoid race conditions
+		if (error == 0 ) floppy_command_end(dev);
+
 	}
 }
 
 void floppy_command_end(struct floppy_data *dev)
 {
-	//mysleep(0,10000); // 10.000 us =>10 ms
+	mysleep(0,10000); // 10.000 us =>10 ms // Simulate that the drive is doing some IO
 	dev->busy = 0;
 	dev->ready_for_transfer =1;
 	switch(dev->command)
 	{
+		case 4: // Read
+			// Auto increment ?
+			if (dev->sector_autoinc)
+			{
+				if (dev->sector <= dev->sectors_pr_track)
+					dev->sector++;			
+			}
+			dev->rw_complete=1;	
+			break;
 		case 5: // seek
+			dev->seek_complete = 1;
+			break;
 		case 6: // Recalibrate
 			dev->seek_complete = 1;
 			break;
@@ -1494,7 +1511,32 @@ void panel_processor_thread() {
 
 void hawk_IO(ushort ioadd) 
 {
+	bool trigger_hawk_thread = 0;	
+	struct hawk_data *dev = iodata[ioadd];
+	if (debug) fprintf(debugfile,"HAWK_IO: IOX %d - A=%d\n",ioadd,gA);
+	fflush(debugfile);
 
+	int reladd = (int)(ioadd & 0x07); /* just get lowest three bits, to work with both disk system I and II */
+	switch(reladd) {
+	case 0: /* Read Memory Address */
+		gA = dev->coreAddress;
+		break;
+	case 1: /* Load Memory Address */
+		break;
+	case 2: /* Read Sector Counter */
+		break;
+	case 3: /* Load Block Address */
+		break;
+	case 4: /* Read Status Register */
+		break;
+	case 5: /* Load Control Word */
+		break;
+	case 6: /* Read Block Address */
+		break;
+	case 7: /* Load Word Counter Register */
+		break;
+	}
+	return;
 }
 
 
