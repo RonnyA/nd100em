@@ -146,6 +146,9 @@ struct hawk_data {
 	bool testMode;
 	bool fixedDrive;
 
+	//device command
+	int command;
+	
 	// Errors
 	bool compareError;
 	bool hardwareError;
@@ -215,6 +218,7 @@ extern void AddIdentChain(char lvl, ushort identnum, int callerid);
 extern void checkPK();
 
 /* HAWK 10 MB HDD*/
+void hawk_init();
 void hawk_IO(ushort ioadd);
 void hawk_thread();
 void hawk_command_end(struct hawk_data *dev);

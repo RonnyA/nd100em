@@ -38,6 +38,7 @@ extern sem_t sem_io;
 extern sem_t sem_mopc;
 extern sem_t sem_run;
 extern sem_t sem_floppy;
+extern sem_t sem_hawk;
 extern sem_t sem_pap;
 
 float usertime,systemtime,totaltime;

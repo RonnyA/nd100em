@@ -354,32 +354,6 @@ void Parity_Mem_IO(ushort ioadd) {
 }
 
 /*
- * Read and write from/to floppy
- */
-void HDD_10MB_IO(ushort ioadd) {
-	int reladd = (int)(ioadd & 0x07); /* just get lowest three bits, to work with both disk system I and II */
-	switch(reladd) {
-	case 0: /* Read Memory Address */
-		break;
-	case 1: /* Load Memory Address */
-		break;
-	case 2: /* Read Sector Counter */
-		break;
-	case 3: /* Load Block Address */
-		break;
-	case 4: /* Read Status Register */
-		break;
-	case 5: /* Load Control Word */
-		break;
-	case 6: /* Read Block Address */
-		break;
-	case 7: /* Load Word Counter Register */
-		break;
-	}
-	return;
-}
-
-/*
  * mopc function to scan for an available char
  * returns nonzero if char was available and the char
  * in the address pointed to by chptr.
@@ -631,7 +605,7 @@ void Setup_IO_Handlers () {
 	IO_Handler_Add(8,11,&RTC_IO,NULL);			/* CPU RTC 10-13 octal */
 	IO_Handler_Add(192,199,&Console_IO,NULL);		/* Console terminal 300-307 octal */
 	IO_Handler_Add(880,887,&Floppy_IO,NULL);		/* Floppy Disk 1 at 1560-1567 octal */	
-	IO_Handler_Add(320,327,&HDD_10MB_IO,NULL);		/* Disk System I at 500-507 octal. , ident 01, interrupt 11*/	
+	IO_Handler_Add(320,327,&hawk_IO,NULL);		/* Disk System I at 500-507 octal. , ident 01, interrupt 11*/	
 	floppy_init(); // removed init here, asits initialized from nd100lib.c
 	hawk_init();	
 }
@@ -1290,15 +1264,13 @@ void floppy_command_end(struct floppy_data *dev)
 	mysleep(0,10000); // 10.000 us =>10 ms // Simulate that the drive is doing some IO
 	dev->busy = 0;
 	dev->ready_for_transfer =1;
+
+	bool checkAutoIncrease=0;
+
 	switch(dev->command)
 	{
-		case 4: // Read
-			// Auto increment ?
-			if (dev->sector_autoinc)
-			{
-				if (dev->sector <= dev->sectors_pr_track)
-					dev->sector++;			
-			}
+		case 4: // Read			
+			checkAutoIncrease = 1;
 			dev->rw_complete=1;	
 			break;
 		case 5: // seek
@@ -1312,14 +1284,19 @@ void floppy_command_end(struct floppy_data *dev)
 			break;
 	}
 	
-	if (dev->sector_autoinc)
+	// Auto increment ?
+	if (checkAutoIncrease)
 	{
-		if (dev->sector < dev->sectors_pr_track)
+		if (dev->sector_autoinc)
 		{
-			dev->sector++;
+			if (dev->sector < dev->sectors_pr_track)
+			{
+				dev->sector++;
+			}
 		}
 	}
 
+	// Interrupt ?
 	if (dev->irq_en)
 	{		
 		floppy_interrupt(dev);
@@ -1512,29 +1489,148 @@ void panel_processor_thread() {
 void hawk_IO(ushort ioadd) 
 {
 	bool trigger_hawk_thread = 0;	
+	bool trigger_hawk_irq = 0;	
+	bool oldIRQ;
 	struct hawk_data *dev = iodata[ioadd];
-	if (debug) fprintf(debugfile,"HAWK_IO: IOX %d - A=%d\n",ioadd,gA);
-	fflush(debugfile);
+	int s;
+
+	while ((s = sem_wait(&sem_io)) == -1 && errno == EINTR) /* wait for io lock to be free and take it */
+		continue; /* Restart if interrupted by handler */
+
+
+
+	if (debug) fprintf(debugfile,"HAWK_IO: IOX %d - A=%d\n",ioadd,gA);	
+	fflush(debugfile);  
 
 	int reladd = (int)(ioadd & 0x07); /* just get lowest three bits, to work with both disk system I and II */
+
+	if (reladd & 0x01) 
+		if (debug) fprintf(debugfile,"HAWK WRITE %d  (%X)\r\n",reladd, (gA & 0xFFFF));
+
 	switch(reladd) {
 	case 0: /* Read Memory Address */
 		gA = dev->coreAddress;
 		break;
 	case 1: /* Load Memory Address */
+	 	dev->coreAddress = gA;
 		break;
 	case 2: /* Read Sector Counter */
+		gA = dev->sectorCounter;
 		break;
 	case 3: /* Load Block Address */
+		dev->blockAddress = gA & 0x7FFF;
+		dev->fixedDrive = (gA>>15) & 0x01;
 		break;
 	case 4: /* Read Status Register */
+		/*
+		Status Word
+			O	Ready for transfer, interrupt enabled
+			1	Error interrupt enabled
+			2	Device active
+			3	Device reacty for transfer
+			4	Inclusive OR of errors (status bits 5 - 11)
+			5	Write protect viotate
+			6	Time out
+			7	Hardware error
+			8	Address mismatch
+			9	Parity error
+			10	Compare error
+			11	Missing clock(s)
+			12	Transfer complete - When all words have been transfered (WC clocks down to 0) this will be set
+			13	Transfer on  - Is active when performin a Read or a Write transfer. Indicated by the Read or Write gate being active. Any data transfter to/from HAWK will set bit 13.
+			14	On cylinder - It means that the read/write heads have reached the cylinger address last issued from the controllwe. It will be inactive when the read/write heads are moving.
+			15	Bit 15 loaded by previous control word
+		*/
+		gA=0;
+		if (dev->irq_rdy_en) gA |= 1 << 0;
+		if (dev->irq_err_en) gA |= 1 <<1;
+		if (dev->deviceActive) gA |= 1 << 2;
+		if (dev->deviceReadyForTransfer) gA |= 1 << 3;
+		if (dev->compareError||dev->hardwareError) gA = (1 << 4);  // or of errror conditions
+		//if () value = (1 << 5); // write protect violation
+		//if () value = (1 << 6); // timeout
+		if (dev->hardwareError) gA = (1 << 7); // hardware error
+		//if () value = (1 << 8);  //address mismatch
+		//if () value = (1 << 9); // parity error
+		if (dev->compareError) gA = (1 << 10); // compare error
+		//if () value = (1 << 11); // missing clocks
+		if (dev->transferComplete) gA |= 1 << 12;
+		if (dev->transferOn) gA |= 1 << 13;
+		if (dev->onCylinder) gA |= 1 << 14;
+		if (dev->writeFormat) gA |= 1 << 15;  // Will be set if the control words specifices "Write Format"
 		break;
+
 	case 5: /* Load Control Word */
+		oldIRQ = dev->irq_rdy_en;
+		dev->irq_rdy_en =  (gA & 0x01);
+		if (dev->irq_rdy_en && !oldIRQ)
+		{
+			trigger_hawk_irq=true;			
+		}
+
+		dev->irq_err_en = (gA>>1)& 0x01;
+		dev->deviceActive = (gA & 1 >> 2) & 0x01;
+		dev->testMode = (gA & 1 >> 3) & 0x01;
+		if (gA & 1 << 4) 
+		{
+			dev->coreAddress = 0;
+			dev->blockAddress = 0;
+			dev->blockAddressHiBits = 0;
+			dev->wordCounter = 0;
+			dev->compareError = false;
+			dev->hardwareError = false;
+			dev->deviceReadyForTransfer = true;
+		}
+
+		dev->blockAddressHiBits = ((gA >> 5) & 0x3); // Bit 16 and 17 for the address is stored in bit 5-6 bit in the ControlWord
+
+		dev->unit_select = (gA >> 5) & 0x3;
+		dev->command = (gA >> 11) & 0b11;
+
+		//marginalRecovery = (value & 1 << 14) != 0; ?? What is this
+
+		dev->writeFormat = (gA >> 15)& 0x01;
+
+		// We are "always" on-cylinder :)
+		dev->onCylinder = true;
+
+		if (dev->deviceActive)
+		{
+			trigger_hawk_thread=1;
+		}
 		break;
 	case 6: /* Read Block Address */
+		gA = dev->blockAddress;
 		break;
 	case 7: /* Load Word Counter Register */
+		dev->wordCounter = gA;
 		break;
+	}
+
+
+	if (sem_post(&sem_io) == -1) { /* release io lock */
+			if (debug) fprintf(debugfile,"ERROR!!! sem_post failure Floppy_IO\n");
+			CurrentCPURunMode = SHUTDOWN;
+	}
+
+	if ((reladd & 0x01) ==0)
+		if (debug) fprintf(debugfile,"Floppy READ %d  (%X)\r\n",reladd, (gA & 0xFFFF));
+
+
+
+
+	if (trigger_hawk_irq)
+		hawk_interrupt(dev);
+
+	if (trigger_hawk_thread )
+	{
+		/* TRIGGER FLOPPY THREAD */		
+		if (sem_post(&sem_hawk) == -1) 
+		{ 
+			// release hawk 
+			if (debug) fprintf(debugfile,"ERROR!!! sem_hawk failure HAWK_IO\n");
+			CurrentCPURunMode = SHUTDOWN;
+		}		
 	}
 	return;
 }
@@ -1543,10 +1639,10 @@ void hawk_IO(ushort ioadd)
 void hawk_thread()
 {
 	int s;
-	struct floppy_data *dev;
+	struct hawk_data *dev;
 	FILE *hawk_file;
 	int position;
-
+	int error;
 	// INIT vars
 
 
@@ -1558,30 +1654,93 @@ void hawk_thread()
 		/* Do our stuff now and then return and wait for next freeing of lock. */
 		dev = iodata[880];	/*TODO:: This is just a temporary solution!!! */
 		// Clear everything
-
+		
 		while ((s = sem_wait(&sem_io)) == -1 && errno == EINTR) /* wait for io lock to be free and take it */
 			continue; /* Restart if interrupted by handler */
 
 
-		//switch() ?
+		if (debug) fprintf(debugfile,"HAWK THREAD ACTIVE");
+
+			/*
+			+----+--------------+---+-----------+
+			| 15 | 14   -    6  | 5 |  4  -  0  |
+			+----+--------------+---+-----------+
+			| D  |  Cylinder #  | S |  Sector # |
+			+----+--------------+---+-----------+
+			
+			Bits	0-4		:	Designates the sector within a track.
+			Bit		5		:	Surface of the (by Bit 15) selected disk (S = 0 upper surface; S = 1 lower surface).
+			Bit		6-14	:	Designates the cylinder number.
+			Bit		15		:	Designates the fixed (D = 1) or the removable (D = 0) disk
+
+			*/
+
+		int sector = dev->blockAddress & 0b11111;
+		int surface = (dev->blockAddress >> 5) & 0x01;
+		int cylinder = (dev->blockAddress >> 8) & 0x7F;
+
+		bool isFixed = ((dev->blockAddress >> 15) & 0x01);
+		cylinder |= dev->blockAddressHiBits << 8; ;
+
+		int position = (dev->blockAddress * 2048); //>>3; // divide by 8... WHY WHY WHY ?
+		int wordsToRead = dev->wordCounter;
+
+		error =0;
+
 		// MAIN LOOP
+
+		if (debug) fprintf(debugfile,"Executing command %d on drive %d blockAddress %d [sector %d cylinder %d surface %d] => position %d", dev->command, dev->unit_select, dev->blockAddress, sector, cylinder, surface, position);
+
+		switch(dev->command) 
+		{
+
+			case 0: // ReadTransfer
+				dev->transferOn = 1;
+				while (wordsToRead>0)
+				{
+
+					wordsToRead--;
+				}
+				break;
+			case 1: // WriteTransfer
+				break;
+			case 2: //ReadParity
+				break;
+			case 3: // Compare
+				break;
+			default:
+				error=-1;
+		}
+		
 
 		if (sem_post(&sem_io) == -1) { /* release io lock */
 			if (debug) fprintf(debugfile,"ERROR!!! sem_post failure Floppy_IO\n");
 			CurrentCPURunMode = SHUTDOWN;
 		}
+
+		// Must run AFTER io-lock has been released to avoid race conditions
+		if (error == 0 ) hawk_command_end(dev);
+		error = -1; // make sure its not run again		
 	}
 }
 
 void hawk_command_end(struct hawk_data *dev)
 {
-	//
+	mysleep(0,10000); // 10.000 us =>10 ms // Simulate that the drive is doing some IO
+	dev->deviceReadyForTransfer =1;
+	dev->deviceActive = 0;	
+	dev->transferOn =0;
+	
+	if (dev->irq_rdy_en)
+	{		
+		hawk_interrupt(dev);
+	}
 }
 
 void hawk_interrupt(struct hawk_data *dev)
 {
     int s;
-	int ident = 0x11; // octal 21
+	int ident = 0x1; //HDD DISK1 uses 0x01, HDD DISK 2 uses 0x5
 	
 
 	if(CurrentCPURunMode != STOP) 

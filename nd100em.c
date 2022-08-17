@@ -68,6 +68,8 @@ int main(int argc, char *argv[]) {
 		exit(1);
 	if (sem_init(&sem_floppy, 0, 1) == -1) /* start with lock. */
 		exit(1);
+	if (sem_init(&sem_hawk, 0, 1) == -1) /* start with lock. */
+		exit(1);
 	if (sem_init(&sem_mopc, 0, 1) == -1) /* start with lock. */
 		exit(1);
 	if (sem_init(&sem_run, 0, 0) == -1) /* start with no lock. */
