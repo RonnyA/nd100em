@@ -120,23 +120,33 @@ struct floppy_data {
 	
 };
 
-struct hdd_10mb_unit {
+struct hawk_unit {
+	
 	char *filename; /* hdd image name */
 	char access;	/* 'r' = readonly, 'w' = read/write */
 };
 
-struct hdd_10mb_data {
+struct hawk_data {
+
+	// Interrupt and IDENT tracking
+	int our_rnd_id;
+
+	// Flags
 	bool irq_rdy_en;	/* device ready for transfer enable */
 	bool irq_err_en;	/* error interrupt enable */
 	bool irq_rdy;
 	bool irq_err;
 	int unit_select;	/* actual hdd 0-3 */
-	struct hdd_10mb_unit (*unit[4]);	/* hdd drive unit 0-3 pointers to private data */
+	struct hawk_unit (*unit[4]);	/* hdd drive unit 0-3 pointers to private data */
 };
+
+
 
 /* TEMP!!! Solution, until we have completely changed config parsing*/
 char *FDD_IMAGE_NAME;
 bool FDD_IMAGE_RO;
+
+char *HAWK_IMAGE_NAME;
 
 #define TERM_IO_NUM 46
 ushort reg_TerminalIO[TERM_IO_NUM][6] = {{0,0,0,0,0,0},{0,0,0,0,0,0},{0,0,0,0,0,0},{0,0,0,0,0,0},{0,0,0,0,0,0},{0,0,0,0,0,0},{0,0,0,0,0,0}};
@@ -180,3 +190,9 @@ extern void setbit(ushort regnum, ushort stsbit, char val);
 extern void interrupt(ushort lvl, ushort sub);
 extern void AddIdentChain(char lvl, ushort identnum, int callerid);
 extern void checkPK();
+
+/* HAWK 10 MB HDD*/
+void hawk_IO(ushort ioadd);
+void hawk_thread();
+void hawk_command_end(struct hawk_data *dev);
+void hawk_interrupt(struct hawk_data *dev);

@@ -2,7 +2,7 @@
 
 CC= gcc
 #CFLAGS = -ggdb
-CFLAGS = -Wall -O3 -pg -fno-aggressive-loop-optimizations
+CFLAGS = -Wall -O3 -pg -fno-aggressive-loop-optimizations -g
 
 OBJS=cpu.o mon.o decode.o float.o floppy.o io.o rtc.o nd100lib.o nd100em.o
 
@@ -42,5 +42,5 @@ nd100em.o: nd100em.c nd100em.h nd100.h
 	$(CC) $(CFLAGS) -c nd100em.c
 
 nd100em: nd100em.o nd100lib.o cpu.o rtc.o mon.o decode.o float.o floppy.o io.o trace.o
-	$(CC) $(CFLAGS) -pthread nd100em.o nd100lib.o cpu.o rtc.o mon.o decode.o float.o floppy.o io.o trace.o -lconfig -lm -o nd100em
+	$(CC) $(CFLAGS) -pthread nd100em.o nd100lib.o cpu.o rtc.o mon.o decode.o float.o floppy.o  io.o trace.o -lconfig -lm -o nd100em
 

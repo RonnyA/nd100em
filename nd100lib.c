@@ -388,6 +388,7 @@ int nd100emconf(){
 		if (tmpstr)
 			FDD_IMAGE_NAME = strdup(tmpstr);
 	}
+	
 	setting = config_lookup(pCFG, "floppy_image_access");
 	if (setting) {
 		tmpstr = (char *)config_setting_get_string(setting);
@@ -400,6 +401,14 @@ int nd100emconf(){
 	} else {
 		FDD_IMAGE_RO = 1;
 	}
+
+	setting = config_lookup(pCFG, "hawk_image");
+	if (setting) {
+		tmpstr = (char *)config_setting_get_string(setting);
+		if (tmpstr)
+			HAWK_IMAGE_NAME = strdup(tmpstr);
+	}
+
 
 	config_destroy(pCFG);
 	free(pCFG);
@@ -568,6 +577,12 @@ void start_threads(){
 	if (debug) fprintf(debugfile,"Added thread id: %d as floppy_thread\n",(int)thread_id);
 	if (debug) fflush(debugfile);
 
+	thread_id = add_thread(&hawk_thread,0);
+	if (debug) fprintf(debugfile,"Added thread id: %d as hawk_thread\n",(int)thread_id);
+	if (debug) fflush(debugfile);
+
+
+
 	if(CONSOLE_IS_SOCKET){
 		thread_id = add_thread(&console_socket_thread,0);
 	} else {
@@ -617,6 +632,9 @@ void setup_cpu(){
 	Setup_IO_Handlers();
 	/* initialize floppy drive data structures */
 	floppy_init();
+
+	/* initialize HAWK drive data structures */
+	hawk_init();
 
 	setbit(_STS,_O,1);
 	setbit_STS_MSB(_N100,1);

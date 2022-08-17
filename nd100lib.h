@@ -67,6 +67,7 @@ struct config_t *pCFG;
 extern char *FDD_IMAGE_NAME;
 extern bool FDD_IMAGE_RO;
 
+extern char *HAWK_IMAGE_NAME;
 
 /* semaphore to release signal thread when terminating */
 sem_t sem_sigthr;
@@ -84,6 +85,10 @@ extern void console_socket_thread(void);
 extern void console_stdio_thread(void);
 extern void floppy_thread(void);
 extern void floppy_init(void);
+
+extern void hawk_thread(void);
+extern void hawk_init(void);
+
 extern void MemoryWrite(ushort value, ushort addr, bool UseAPT, unsigned char byte_select);
 extern ushort MemoryRead(ushort addr, bool UseAPT);
 

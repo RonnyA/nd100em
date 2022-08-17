@@ -47,6 +47,9 @@ sem_t sem_io;
 /* floppy synchronization*/
 sem_t sem_floppy;
 
+/* hawk disk synchronization*/
+sem_t sem_hawk;
+
 /* panel processor synchronization*/
 sem_t sem_pap;
 
@@ -624,9 +627,11 @@ void Setup_IO_Handlers () {
 	IO_Handler_Add(4,7,&Parity_Mem_IO,NULL);		/* Parity Memory something, 4-7 octal */
 	IO_Handler_Add(8,11,&RTC_IO,NULL);			/* CPU RTC 10-13 octal */
 	IO_Handler_Add(192,199,&Console_IO,NULL);		/* Console terminal 300-307 octal */
-	IO_Handler_Add(880,887,&Floppy_IO,NULL);		/* Floppy Disk 1 at 1560-1567 octal */
+	IO_Handler_Add(880,887,&Floppy_IO,NULL);		/* Floppy Disk 1 at 1560-1567 octal */	
+	IO_Handler_Add(320,327,&HDD_10MB_IO,NULL);		/* Disk System I at 500-507 octal. , ident 01, interrupt 11*/	
 	floppy_init();
-//	IO_Handler_Add(320,327,&HDD_10MB_IO,NULL);		/* Disk System I at 500-507 octal */
+
+	
 }
 
 /*
@@ -678,6 +683,44 @@ void floppy_init() {
 	ptr->record_deleted=0;	
 
 	IO_Data_Add(880,887,ptr);
+}
+
+
+void hawk_init()
+{
+	struct hawk_data *ptr;
+	struct hawk_unit *ptr2;
+	
+	ptr =calloc(1,sizeof(struct hawk_data));
+	if (ptr) {
+		ptr->our_rnd_id=rand(); /* our unique identifier for not generating multiple idents on the same device, TODO: Check if needed*/
+
+		ptr2 = calloc(1,sizeof(struct hawk_unit));
+		if (ptr2) {
+			ptr->unit[0] = ptr2;
+			if(HAWK_IMAGE_NAME) {
+				ptr->unit[0]->filename = strdup(HAWK_IMAGE_NAME);
+				
+				/*
+				ptr->unit[0]->readonly = FDD_IMAGE_RO;
+				if (HDD_IMAGE_RO && ptr->unit[0]->filename) {
+					ptr->unit[0]->fp = fopen(HAWK_IMAGE_NAME, "r");
+				} else if(ptr->unit[0]->filename){
+					ptr->unit[0]->fp = fopen(_IMAGE_NAME, "r+");
+				}
+				*/
+			}
+		}
+		ptr2 = calloc(1,sizeof(struct hawk_unit));
+		if (ptr2) {
+			ptr->unit[1] = ptr2;
+		}
+		ptr2 = calloc(1,sizeof(struct hawk_unit));
+		if (ptr2) {
+			ptr->unit[2] = ptr2;
+		}
+	}	
+	IO_Data_Add(320,327,ptr);
 }
 
 /*
@@ -1447,4 +1490,73 @@ void panel_processor_thread() {
 		panel_event();
 	}
 	return;
+}
+
+void hawk_IO(ushort ioadd) 
+{
+
+}
+
+
+void hawk_thread()
+{
+	int s;
+	struct floppy_data *dev;
+	FILE *hawk_file;
+	int position;
+
+	// INIT vars
+
+
+	while(CurrentCPURunMode != SHUTDOWN) 
+	{
+		while ((s = sem_wait(&sem_hawk)) == -1 && errno == EINTR) /* wait for floppu lock to be free and take it */
+			continue; /* Restart if interrupted by handler */
+
+		/* Do our stuff now and then return and wait for next freeing of lock. */
+		dev = iodata[880];	/*TODO:: This is just a temporary solution!!! */
+		// Clear everything
+
+		while ((s = sem_wait(&sem_io)) == -1 && errno == EINTR) /* wait for io lock to be free and take it */
+			continue; /* Restart if interrupted by handler */
+
+
+		//switch() ?
+		// MAIN LOOP
+
+		if (sem_post(&sem_io) == -1) { /* release io lock */
+			if (debug) fprintf(debugfile,"ERROR!!! sem_post failure Floppy_IO\n");
+			CurrentCPURunMode = SHUTDOWN;
+		}
+	}
+}
+
+void hawk_command_end(struct hawk_data *dev)
+{
+	//
+}
+
+void hawk_interrupt(struct hawk_data *dev)
+{
+    int s;
+	int ident = 0x11; // octal 21
+	
+
+	if(CurrentCPURunMode != STOP) 
+	{
+		while ((s = sem_wait(&sem_int)) == -1 && errno == EINTR) /* wait for interrupt lock to be free */
+				continue;       /* Restart if interrupted by handler */
+		
+		gPID |= 0x800; /* Bit 11 */				
+		// interrupt(11,0); <= hangs
+		AddIdentChain(11,ident,dev->our_rnd_id); /* Add interrupt to ident (o21) chain, lvl13, ident code 1, and identify us */
+		
+		if (sem_post(&sem_int) == -1) 
+		{ 
+			/* release interrupt lock */
+			if (debug) fprintf(debugfile,"ERROR!!! sem_post failure DOMCL\n");
+			CurrentCPURunMode = SHUTDOWN;
+		}
+		checkPK();
+	}
 }
