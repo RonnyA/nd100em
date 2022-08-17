@@ -154,7 +154,7 @@ struct hawk_data {
 	bool hardwareError;
 
 	//  pointers
-	int coreAddress;
+	ulong coreAddress;
 	ushort wordCounter;
 	ushort sectorCounter; // wtf is this ?
 	int blockAddress;
@@ -221,5 +221,9 @@ extern void checkPK();
 void hawk_init();
 void hawk_IO(ushort ioadd);
 void hawk_thread();
-void hawk_command_end(struct hawk_data *dev);
+void hawk_command_end(int error);
 void hawk_interrupt(struct hawk_data *dev);
+extern void PhysMemWrite(ushort value, ulong addr);
+
+// Avoding the £$@$@£ Thread Sync
+void TickIO();

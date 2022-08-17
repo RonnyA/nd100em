@@ -55,6 +55,10 @@ sem_t sem_pap;
 
 struct display_panel *gPAP;
 
+// Variables used for the IO Tick routine
+int tick_hawk_end = 0;
+int tick_hawk_error=0;
+
 /*
  * IOX and IOXT operation, dummy for now.
  * The Norm is: even address is read, odd address is write
@@ -1463,8 +1467,8 @@ void panel_event(){
 		if (debug) fflush(debugfile);
 	}
 	if (gPAP->sec_tick) {	/* Seconds tick from rtc, update counters */
-		if (debug) fprintf(debugfile,"panel_event: 1 second tick\n");
-		if (debug) fflush(debugfile);
+		//if (debug) fprintf(debugfile,"panel_event: 1 second tick\n");
+		//if (debug) fflush(debugfile);
 		gPAP->sec_tick = false;
 		gPAP->seconds++;
 		if (gPAP->seconds >= 43200){	/* 12h wraparound */
@@ -1486,6 +1490,7 @@ void panel_processor_thread() {
 	return;
 }
 
+static int lastA = 0;
 void hawk_IO(ushort ioadd) 
 {
 	bool trigger_hawk_thread = 0;	
@@ -1499,13 +1504,13 @@ void hawk_IO(ushort ioadd)
 
 
 
-	if (debug) fprintf(debugfile,"HAWK_IO: IOX %d - A=%d\n",ioadd,gA);	
-	fflush(debugfile);  
+	//if (debug) fprintf(debugfile,"HAWK_IO: IOX %d - A=%d\n",ioadd,gA);	
+	//fflush(debugfile);  
 
 	int reladd = (int)(ioadd & 0x07); /* just get lowest three bits, to work with both disk system I and II */
 
 	if (reladd & 0x01) 
-		if (debug) fprintf(debugfile,"HAWK WRITE %d  (%X)\r\n",reladd, (gA & 0xFFFF));
+		if (debug) fprintf(debugfile,"HAWK WRITE %d  (0x%X)\r\n",reladd, (gA & 0xFFFF));
 
 	switch(reladd) {
 	case 0: /* Read Memory Address */
@@ -1543,7 +1548,7 @@ void hawk_IO(ushort ioadd)
 		*/
 		gA=0;
 		if (dev->irq_rdy_en) gA |= 1 << 0;
-		if (dev->irq_err_en) gA |= 1 <<1;
+		if (dev->irq_err_en) gA |= 1 << 1;
 		if (dev->deviceActive) gA |= 1 << 2;
 		if (dev->deviceReadyForTransfer) gA |= 1 << 3;
 		if (dev->compareError||dev->hardwareError) gA = (1 << 4);  // or of errror conditions
@@ -1568,18 +1573,21 @@ void hawk_IO(ushort ioadd)
 			trigger_hawk_irq=true;			
 		}
 
-		dev->irq_err_en = (gA>>1)& 0x01;
-		dev->deviceActive = (gA & 1 >> 2) & 0x01;
-		dev->testMode = (gA & 1 >> 3) & 0x01;
-		if (gA & 1 << 4) 
+		dev->irq_err_en = (gA>>1) & 0x01;
+		dev->deviceActive = (gA>>2) & 0x01;
+		dev->testMode = (gA>>3) & 0x01;
+
+		if ((gA >> 4) & 0x01)
 		{
+			if (debug) fprintf(debugfile,"Hawk: DeviceClear\n");
+
 			dev->coreAddress = 0;
 			dev->blockAddress = 0;
 			dev->blockAddressHiBits = 0;
 			dev->wordCounter = 0;
-			dev->compareError = false;
-			dev->hardwareError = false;
-			dev->deviceReadyForTransfer = true;
+			dev->compareError = 0;
+			dev->hardwareError = 0;
+			dev->deviceReadyForTransfer = 1;
 		}
 
 		dev->blockAddressHiBits = ((gA >> 5) & 0x3); // Bit 16 and 17 for the address is stored in bit 5-6 bit in the ControlWord
@@ -1592,11 +1600,11 @@ void hawk_IO(ushort ioadd)
 		dev->writeFormat = (gA >> 15)& 0x01;
 
 		// We are "always" on-cylinder :)
-		dev->onCylinder = true;
+		dev->onCylinder = 1;
 
 		if (dev->deviceActive)
-		{
-			trigger_hawk_thread=1;
+		{			
+			hawk_transfer();					
 		}
 		break;
 	case 6: /* Read Block Address */
@@ -1607,134 +1615,240 @@ void hawk_IO(ushort ioadd)
 		break;
 	}
 
-
 	if (sem_post(&sem_io) == -1) { /* release io lock */
-			if (debug) fprintf(debugfile,"ERROR!!! sem_post failure Floppy_IO\n");
-			CurrentCPURunMode = SHUTDOWN;
+		if (debug) fprintf(debugfile,"ERROR!!! sem_post failure Hawk_IO\n");
+		CurrentCPURunMode = SHUTDOWN;
 	}
 
-	if ((reladd & 0x01) ==0)
-		if (debug) fprintf(debugfile,"Floppy READ %d  (%X)\r\n",reladd, (gA & 0xFFFF));
-
-
-
+	if (debug)
+	{
+		// Log that we Read value, but dont log repeting values (ie typically loop on reading status reg)
+		if ((reladd & 0x01) ==0)
+		{
+			if (gA != lastA)				
+				fprintf(debugfile,"HAWK READ %d  (0x%X)\r\n",reladd, (gA & 0xFFFF));
+			lastA = gA;
+		}
+	}
+		 
 
 	if (trigger_hawk_irq)
+	{
+		if (debug) fprintf(debugfile,"HAWK: Triggering  IRQ...");
 		hawk_interrupt(dev);
+		if (debug) fprintf(debugfile,"Returned\n");
+	}
+		
 
+	
+	return;
+}
+
+
+
+void hawk_transfer()
+{
+	int s;
+	struct hawk_data *dev;
+	FILE *hawk_file;
+	char loadtype[]="r+";	
+	ushort read_word;
+	ushort endian_word;
+	int readcnt;
+
+	// Find pointer to Device	
+	dev = iodata[320];	/*TODO:: This is just a temporary solution!!! */
+
+	// trigger for hawk thread .. pt. unused
+	bool trigger_hawk_thread=0;
+
+
+	// Block Address is defined like this in the documentation
+	// Comment: At the moment it doesnt look like that, values coming from "DUMP-PAGE n" when running FILESYS-INV doesnt work like this
+
+	/*
+	+----+--------------+---+-----------+
+	| 15 | 14   -    6  | 5 |  4  -  0  |
+	+----+--------------+---+-----------+
+	| D  |  Cylinder #  | S |  Sector # |
+	+----+--------------+---+-----------+
+	
+	Bits	0-4		:	Designates the sector within a track.
+	Bit		5		:	Surface of the (by Bit 15) selected disk (S = 0 upper surface; S = 1 lower surface).
+	Bit		6-14	:	Designates the cylinder number.
+	Bit		15		:	Designates the fixed (D = 1) or the removable (D = 0) disk
+
+	*/
+
+	int sector = dev->blockAddress & 0b11111;
+	int surface = (dev->blockAddress >> 5) & 0x01;
+	int cylinder = (dev->blockAddress >> 8) & 0x7F;
+
+	bool isFixed = ((dev->blockAddress >> 15) & 0x01);
+	cylinder |= dev->blockAddressHiBits << 8; ;
+
+	int position = (dev->blockAddress * 2048); //>>3; // divide by 8... WHY WHY WHY ?
+	int wordsToRead = dev->wordCounter;
+		
+			
+
+	if (debug) fprintf(debugfile,"HAWK: Executing command %d on drive %d blockAddress %d [sector %d cylinder %d surface %d] => position %d\n", dev->command, dev->unit_select, dev->blockAddress, sector, cylinder, surface, position);
+	if (debug) fflush(debugfile);
+
+
+	
+	// Safely open image and seek			
+	if (dev->unit[dev->unit_select]->filename != NULL)
+	{				
+		hawk_file=fopen(dev->unit[dev->unit_select]->filename,loadtype);	
+
+		if (hawk_file==NULL)
+		{
+			if (debug) fprintf(debugfile,"HAWK: File open failed. File '%s' errno %d\n", dev->unit[dev->unit_select]->filename, errno);
+			dev->hardwareError=1;
+			dev->deviceActive=0;
+			return;
+		}
+
+		if (fseek(hawk_file,position,SEEK_SET) != 0)					
+		{
+			if (debug) fprintf(debugfile,"HAWK: File seek %d failed.\n",position);
+			dev->hardwareError=1;
+			dev->deviceActive=0;
+			return;
+		}
+	}
+	else
+	{
+		if (debug) fprintf(debugfile,"HAWK: ERROR - No filename defined\n");
+		dev->hardwareError=1;
+		dev->deviceActive=0;
+		return;
+	}
+
+
+	dev->transferComplete=0;
+	dev->hardwareError=0;
+	dev->deviceReadyForTransfer=0;
+	dev->transferOn =1;
+
+	int error = 0;
+
+	switch(dev->command) 
+	{
+
+		case 0: // ReadTransfer						
+			if (debug) fprintf(debugfile,"HAWK: Starting ReadTransfer, disk position %d wc %d\n", position, wordsToRead);	
+			if (debug) fflush(debugfile);					
+			error = 0;
+			while (wordsToRead>0)
+			{
+
+				readcnt = fread(&read_word,1,2,hawk_file);							
+
+				if (readcnt <=0)
+				{
+					
+					dev->hardwareError=1;
+					dev->deviceActive=0;
+					
+					wordsToRead = 0;
+					error = 1;
+					break; // Exit while loop	
+					
+				}
+				else
+				{								
+					// Swap HI/LO to make endian correct (ND is BIG ENDIAN)
+					endian_word=(read_word & 0xff00)>>8;
+					endian_word= endian_word | ((read_word & 0x00ff) << 8);								
+
+					// Write to memory				
+					//if (debug) fprintf(debugfile,"X: 0x%X => [%d]  \n", endian_word, dev->coreAddress);
+
+					//PhysMemWrite(endian_word, dev->coreAddress);
+					PhysMemWrite(wordsToRead, dev->coreAddress);
+					dev->coreAddress++;
+
+					// next please
+					wordsToRead--;							
+				}						
+			}						
+			break;
+
+		case 1: // WriteTransfer
+			if (debug) fprintf(debugfile,"HAWK: Starting WriteTransfer, disk position %d wc %d", position, wordsToRead);
+			break;
+		case 2: //ReadParity
+			if (debug) fprintf(debugfile,"HAWK: Starting ReadParity, disk position %d wc %d", position, wordsToRead);
+			break;
+		case 3: // Compare
+			if (debug) fprintf(debugfile,"HAWK: Starting Compare, disk position %d wc %d", position, wordsToRead);
+			break;
+
+		default:
+			error=0x10;
+	}	
+		
+	//printf("closing HAWK file\n");
+	if (hawk_file != NULL)
+	{
+		fclose(hawk_file);
+		hawk_file = NULL;
+	}				
+
+	tick_hawk_end = 10;  // In 10 CPU ticks trigger hawk_command_end
+	tick_hawk_error = error; // and this is the saved error code
+	//hawk_command_end(dev, error);		
+	
+
+	/*
 	if (trigger_hawk_thread )
 	{
-		/* TRIGGER FLOPPY THREAD */		
+		if (debug) fprintf(debugfile,"HAWK: Triggering Thread..\n");	
 		if (sem_post(&sem_hawk) == -1) 
 		{ 
 			// release hawk 
 			if (debug) fprintf(debugfile,"ERROR!!! sem_hawk failure HAWK_IO\n");
 			CurrentCPURunMode = SHUTDOWN;
-		}		
+		}	
+
+		trigger_hawk_thread = 0;	
 	}
-	return;
+	*/
 }
 
 
-void hawk_thread()
-{
-	int s;
+
+
+void hawk_command_end(int error)
+{	
+
 	struct hawk_data *dev;
-	FILE *hawk_file;
-	int position;
-	int error;
-	// INIT vars
 
+	// Find pointer to Device	
+	dev = iodata[320];	
 
-	while(CurrentCPURunMode != SHUTDOWN) 
-	{
-		while ((s = sem_wait(&sem_hawk)) == -1 && errno == EINTR) /* wait for floppu lock to be free and take it */
-			continue; /* Restart if interrupted by handler */
+	if (debug) fprintf(debugfile,"HAWK:Command End. Error = %d\n", error);
+	if (debug) fflush(debugfile);					
 
-		/* Do our stuff now and then return and wait for next freeing of lock. */
-		dev = iodata[880];	/*TODO:: This is just a temporary solution!!! */
-		// Clear everything
-		
-		while ((s = sem_wait(&sem_io)) == -1 && errno == EINTR) /* wait for io lock to be free and take it */
-			continue; /* Restart if interrupted by handler */
+	//mysleep(0,1000); // 1000 us =>1 ms // Simulate that the drive is doing some IO
+	
 
-
-		if (debug) fprintf(debugfile,"HAWK THREAD ACTIVE");
-
-			/*
-			+----+--------------+---+-----------+
-			| 15 | 14   -    6  | 5 |  4  -  0  |
-			+----+--------------+---+-----------+
-			| D  |  Cylinder #  | S |  Sector # |
-			+----+--------------+---+-----------+
-			
-			Bits	0-4		:	Designates the sector within a track.
-			Bit		5		:	Surface of the (by Bit 15) selected disk (S = 0 upper surface; S = 1 lower surface).
-			Bit		6-14	:	Designates the cylinder number.
-			Bit		15		:	Designates the fixed (D = 1) or the removable (D = 0) disk
-
-			*/
-
-		int sector = dev->blockAddress & 0b11111;
-		int surface = (dev->blockAddress >> 5) & 0x01;
-		int cylinder = (dev->blockAddress >> 8) & 0x7F;
-
-		bool isFixed = ((dev->blockAddress >> 15) & 0x01);
-		cylinder |= dev->blockAddressHiBits << 8; ;
-
-		int position = (dev->blockAddress * 2048); //>>3; // divide by 8... WHY WHY WHY ?
-		int wordsToRead = dev->wordCounter;
-
-		error =0;
-
-		// MAIN LOOP
-
-		if (debug) fprintf(debugfile,"Executing command %d on drive %d blockAddress %d [sector %d cylinder %d surface %d] => position %d", dev->command, dev->unit_select, dev->blockAddress, sector, cylinder, surface, position);
-
-		switch(dev->command) 
-		{
-
-			case 0: // ReadTransfer
-				dev->transferOn = 1;
-				while (wordsToRead>0)
-				{
-
-					wordsToRead--;
-				}
-				break;
-			case 1: // WriteTransfer
-				break;
-			case 2: //ReadParity
-				break;
-			case 3: // Compare
-				break;
-			default:
-				error=-1;
-		}
-		
-
-		if (sem_post(&sem_io) == -1) { /* release io lock */
-			if (debug) fprintf(debugfile,"ERROR!!! sem_post failure Floppy_IO\n");
-			CurrentCPURunMode = SHUTDOWN;
-		}
-
-		// Must run AFTER io-lock has been released to avoid race conditions
-		if (error == 0 ) hawk_command_end(dev);
-		error = -1; // make sure its not run again		
-	}
-}
-
-void hawk_command_end(struct hawk_data *dev)
-{
-	mysleep(0,10000); // 10.000 us =>10 ms // Simulate that the drive is doing some IO
 	dev->deviceReadyForTransfer =1;
 	dev->deviceActive = 0;	
 	dev->transferOn =0;
-	
+	dev->transferComplete=1;
+
 	if (dev->irq_rdy_en)
 	{		
 		hawk_interrupt(dev);
 	}
+
+	// Error interrupt enabled ?
+	if ((error >0)&&(dev->irq_err_en))
+		hawk_interrupt(dev);
+
 }
 
 void hawk_interrupt(struct hawk_data *dev)
@@ -1742,6 +1856,7 @@ void hawk_interrupt(struct hawk_data *dev)
     int s;
 	int ident = 0x1; //HDD DISK1 uses 0x01, HDD DISK 2 uses 0x5
 	
+	if (debug) fprintf(debugfile,"HAWK:Interrupt 11\n");
 
 	if(CurrentCPURunMode != STOP) 
 	{
@@ -1759,5 +1874,59 @@ void hawk_interrupt(struct hawk_data *dev)
 			CurrentCPURunMode = SHUTDOWN;
 		}
 		checkPK();
+	}
+}
+
+
+// at the moment this does nothing.. maybe use it for delayed register settings
+void hawk_thread()
+{
+	int s;
+	struct hawk_data *dev;
+	FILE *hawk_file;
+	char loadtype[]="r+";	
+	int position;
+	int error;
+	ushort read_word;
+	ushort endian_word;
+	int readcnt;
+	// INIT vars
+
+
+	while(CurrentCPURunMode != SHUTDOWN) 
+	{
+		while ((s = sem_wait(&sem_hawk)) == -1 && errno == EINTR) /* wait for floppu lock to be free and take it */
+			continue; /* Restart if interrupted by handler */
+
+		/* Do our stuff now and then return and wait for next freeing of lock. */
+		dev = iodata[320];	/*TODO:: This is just a temporary solution!!! */
+		// Clear everything
+		
+		while ((s = sem_wait(&sem_io)) == -1 && errno == EINTR) /* wait for io lock to be free and take it */
+			continue; /* Restart if interrupted by handler */
+
+
+		if (sem_post(&sem_io) == -1) { /* release io lock */
+			if (debug) fprintf(debugfile,"ERROR!!! sem_post failure Floppy_IO\n");
+			CurrentCPURunMode = SHUTDOWN;
+		}
+
+	}
+
+}
+
+
+
+// need to use this to get the HAWK registers to change after N number of ticks
+void TickIO()
+{
+	if (tick_hawk_end>0)
+	{
+		tick_hawk_end--;
+		if (tick_hawk_end<=0)
+		{
+			hawk_command_end(tick_hawk_error);
+			tick_hawk_error = 0;
+		}
 	}
 }
