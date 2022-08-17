@@ -82,8 +82,7 @@ void Default_IO(ushort ioadd) {
 void Floppy_IO(ushort ioadd) {
 	int s;
 	int a = ioadd & 0x07;
-	int i;
-	int old_irq;
+	int i;	
 	bool trigger_floppy_thread = 0;
 	ushort tmp;
 	struct floppy_data *dev = iodata[ioadd];
@@ -106,24 +105,25 @@ void Floppy_IO(ushort ioadd) {
 			break;
 
 		case 1: /* IOX WDAT - Write data buffer */
-
+			//printf("W");
 			dev->buff[dev->bufptr] = gA;
 			dev->bufptr = (dev->bufptr +1) & FDD_BUFFER_MAX;
 			break;
 
 		case 2: /* IOX RSR1 - Read status register No. 1 */
 
-			gA = 0; /* Put A in consistent state */
+			gA = 0; /* Put A in consistent state */			
+			/* bit 0 not used */
 			gA |= (dev->irq_en) ? (1<<1) : 0;	/* IRQ enabled (bit 1)*/
-			gA |= (dev->busy) ? (1<<2) : 0;		/* Device is busy */
-			gA |= (dev->ready_for_transfer) ? (1<<3) : 0;		/* Ready for transfer */		
+			gA |= (dev->busy) ? (1<<2) : 0;		/* Device is busy (bit 2) */
+			gA |= (dev->ready_for_transfer) ? (1<<3) : 0;		/* Ready for transfer (bit 3)*/		
 
-			if (dev->drive_not_rdy || dev->write_protect ||dev->missing) gA |= (1<<4);	/* inclusive or of error =>check STS reg 2 */
+			if (dev->drive_not_rdy || dev->write_protect ||dev->missing) gA |= (1<<4);	/* inclusive or of error (bit 4) =>check STS reg 2 for details*/
 
 
-			gA |= (dev->record_deleted) ? (1<<5) : 0;	/* Deleted record */
-			gA |= (dev->rw_complete) ? (1<<6) : 0;	/* ReadWrite complete */
-			gA |= (dev->seek_complete) ? (1<<7) : 0;	/* Seek Complete */
+			gA |= (dev->record_deleted) ? (1<<5) : 0;	/*  Deleted record  (bit 5) */
+			gA |= (dev->rw_complete) ? (1<<6) : 0;	/* ReadWrite complete (bit 6) */
+			gA |= (dev->seek_complete) ? (1<<7) : 0;	/* Seek Complete (bit 7) */
 
 			if (debug) fprintf(debugfile,"Floppy_IO: IOX %o RSR1 - A=%04x\n",ioadd,gA);
 			break;
@@ -131,14 +131,15 @@ void Floppy_IO(ushort ioadd) {
 		case 3: /* IOX WCWD - Write control word */		
 			if (debug) fprintf(debugfile,"IOX 1563 - Write Control Word...\n");
 
-			old_irq = dev->irq_en;			
-			dev->irq_en = (gA >> 1) & 0x01;
+			bool old_irq = dev->irq_en;			
+			dev->irq_en = (gA  >> 1) & 0x01;  // BIT 1 - Interrupt Enabled
 			if (dev->irq_en && !old_irq)
 			{
+				// If bit is "turned on" generate interrupt
 				floppy_interrupt(dev);
 			}
 
-			if ((gA >> 3) & 0x01) {
+			if ((gA >> 3) & 0x01) {  // BIT 3 - Test mode
 				dev->test_mode = 1;
 			}
 			if ((gA >> 4) & 0x01) {		/* Device clear */
@@ -175,8 +176,8 @@ void Floppy_IO(ushort ioadd) {
 		case 4: /* IOX RSR2 - Read status register No. 2 */
 			gA = 0; /* Put A in consistent state */
 			gA |= (dev->drive_not_rdy) ? (1<<8) : 0;	/* drive not ready (bit 8)*/
-			gA |= (dev->write_protect) ? (1<<9) : 0;	/* set if trying to write to write protected diskette (file) */
-			gA |= (dev->missing) ? (1<<11) : 0;		/* sector missing / no am */
+			gA |= (dev->write_protect) ? (1<<9) : 0;	/* set if trying to write to write protected diskette (file) (bit 9) */
+			gA |= (dev->missing) ? (1<<11) : 0;		/* sector missing  (bit 11) */
 
 			if (debug) fprintf(debugfile,"Floppy_IO: IOX %o RSR2 - A=%04x\n",ioadd,gA);
 
@@ -185,16 +186,23 @@ void Floppy_IO(ushort ioadd) {
 		case 5: /* IOX WDAD - Write Drive Address/ Write Difference */
 			if (gA & 0x1) 
 			{ 
-				/* Write drive address */
+				// Bit 0=1 => Write Drive Address
+
 				if (debug) fprintf(debugfile,"IOX 1565 - Write Drive Address...\n");
 
-				dev->unit_select = ((gA >> 8) & 0b11);				
+				// Bit 1-2
+				//loadDriveAddress = (value>>1) & 0b11; // This instruction selects drive and format. But what does it really do ?
+
+				// Bit 8-9, Selected drive
+				dev->unit_select = ((gA >> 8) & 0x03);				
+				
+				// Bit 14-15, Selected format
 				dev->selected_format = ((gA >> 14) & 0x03);			
 
 				printf("Drive %d format %d\r\n",dev->unit_select, dev->selected_format );
 
-				//if (gA & 1<<11) // Clear selected drive
-				//	dev->unit_select = -1;					
+				if (gA & 1<<11) // Clear selected drive
+					dev->unit_select = -1;					
 				
 				switch (dev->selected_format)
 				{
@@ -219,37 +227,47 @@ void Floppy_IO(ushort ioadd) {
 			} 
 			else
 			{ 
-				/* Write difference */
+				// Bit 0=0 => Write difference
 				if (debug) fprintf(debugfile,"IOX 1565 - Write Difference...\n");				
 
-				if(dev->unit_select != -1) {
-					dev->unit[dev->unit_select]->diff_track = (gA >> 8) & 0x7f; // 7 bits difference setting
-					dev->unit[dev->unit_select]->dir_track = (gA >> 15 ) & 0x01;
+				//if(dev->unit_select != -1) {
+					int diff_track = (gA >> 8) & 0x7f; // 7 bits difference setting
+					int dir_track = (gA >> 15 ) & 0x01;
 					
 					// Auto seek to new track
-					if (dev->unit[dev->unit_select]->diff_track)
+					if (diff_track>0)
 					{
-						printf("Moving tracks. Diff %d  Direction %d\r\n",dev->unit[dev->unit_select]->diff_track,dev->unit[dev->unit_select]->dir_track);
+						printf("Moving tracks. Diff %d  Direction %d\r\n",diff_track,dir_track);
 
-						if (dev->unit[dev->unit_select]->dir_track)
+						if (dir_track)
 						{
-							dev->unit[dev->unit_select]->curr_track += dev->unit[dev->unit_select]->diff_track;
+							dev->track += diff_track;
 						}
 						else
 						{
-							dev->unit[dev->unit_select]->curr_track -= dev->unit[dev->unit_select]->diff_track;
+							dev->track -= -diff_track;
 						}
 
-						if (dev->unit[dev->unit_select]->curr_track <0) dev->unit[dev->unit_select]->curr_track = 0;
-						if (dev->unit[dev->unit_select]->curr_track >76) dev->unit[dev->unit_select]->curr_track = 76;
-						
-						dev->unit[dev->unit_select]->diff_track = 0;  // Move done.
+						if (dev->track <0) dev->track = 0;
+						if (dev->track>76) dev->track = 76;
 					}
-				}
+				//}
 			}
 
 			break;
 		case 6: /* Read Test */
+			/*
+					 This instruction is used for simulation of data transfer between the Floppy Disk Systern and N-10 intnterface.
+					 It does not transfer data from the N-10 interface ro the A register, but puts one 8 bit byte into the interface buffer, each time the instructioni s executed.
+					 The bytes aree packed to 16 bit words in the buffer and may later be read by IOX RDAT instruction.
+					 The byte may be chosen by using the IOX WSCT instruction (see description of IOX WSCT).
+
+					IOX RTST is used for test purposes oniy and does not generate interrupt and busy signals.
+					The insrruction is oniy active when the interface is set in test mode by the foilowiny instruction:
+
+						SAA 10
+						IOX WCWD
+			*/
 			if (dev->test_mode)
 			{
 				if (dev->bufptr_msb) {
@@ -272,9 +290,18 @@ void Floppy_IO(ushort ioadd) {
 			}
 			else
 			{
+				// Bit 8-14 Setor to be used in subsequent Read/write command
+													  // Sector ranges (octal)
+													  // 1-32 for UBM 3740
+													  // 1-17 for IBM 3600
+													  // 1-10 for IBM System 32I1
+													  // Sector 0 must not be used
 				dev->sector = (gA >> 8) & 0x7f;
-				dev->sector_autoinc = (gA>>15) &0x01;
-				/*TODO:: check ranges on sector based on floppy type selected */
+
+				// If this bit is true the sector regiser is automatically incremented after each read/write command.
+				// NB! This autoicrment is not valid pas the last sector of a track
+				dev->sector_autoinc = (gA>>15) & 0x01;
+				
 			}
 
 		break;
@@ -1040,8 +1067,8 @@ void floppy_thread()
 	
 		}		
 
-		// Execute command , only drive 0 is available
-		if (dev->unit_select!= 0)
+		// Execute command , only drive 0 is available in this emulator code. TODO: Add support for more drives
+		if (dev->unit_select!= 0)  // TODO: should be ok for unit in range 0-2
 		{
 			dev->drive_not_rdy = 1;
 			dev->busy = 0;
@@ -1065,10 +1092,10 @@ void floppy_thread()
 				dev->sector = 1; // Force a valid sector
 	
 			// Position insid file
-			position = ((dev->sector-1)*dev->bytes_pr_sector) + (dev->unit[dev->unit_select]->curr_track * dev->bytes_pr_sector * dev->sectors_pr_track);
+			position = ((dev->sector-1)*dev->bytes_pr_sector) + (dev->track * dev->bytes_pr_sector * dev->sectors_pr_track);
 			transfer_word_count = dev->bytes_pr_sector >> 1;
 
-			printf("Executing command %d on drive %d. Position %d Sector %d Track %d [%d]\r\n",dev->command, dev->unit_select, position, dev->sector, dev->unit[dev->unit_select]->curr_track, dev->bufptr );
+			printf("Executing command %d on drive %d. Position %d Sector %d Track %d [%d]\r\n",dev->command, dev->unit_select, position, dev->sector, dev->track, dev->bufptr );
 
 			// Safely open image and seek			
 			if (floppyimage != NULL)
@@ -1113,7 +1140,7 @@ void floppy_thread()
 			
 					case 3: // ReadID
 							/*
-							if (SectorIsDeleted(dev->sector, dev->unit[dev->unit_select]->curr_track))
+							if (SectorIsDeleted(dev->sector, dev->track))
 							{
 								dev->buff[0] = 0xFF00;
 								dev->buff[1] = 0xFF01;
@@ -1122,7 +1149,7 @@ void floppy_thread()
 							else
 							*/
 							{
-								dev->buff[0] = (ushort)(dev->unit[dev->unit_select]->curr_track);
+								dev->buff[0] = (ushort)(dev->track);
 								dev->buff[1] = (ushort)((dev->sector ) | (0x01<<8));
 							}
 
@@ -1166,7 +1193,7 @@ void floppy_thread()
 			
 					case 6: // Recalibrate,
 							dev->sector = 1;
-							dev->unit[dev->unit_select]->curr_track=0;
+							dev->track=0;
 							break;
 			
 					case 7: // ControlReset

@@ -76,10 +76,6 @@ struct fdd_unit {
 	char *filename;
 	bool readonly;
 	FILE *fp;		/* pointer to actual file. If non null points to an open file */
-	int drive_format;	/* 0 = ibm3740, 1 = ibm3600, 2 = ibm system 32-II */
-	int curr_track;		/* track "head" is on now */
-	int diff_track;			/* difference between current and desired track */
-	int dir_track;			/* direction 0=lower track no, 1= higher track no */
 };
 
 struct floppy_data {
@@ -98,7 +94,7 @@ struct floppy_data {
 	int our_rnd_id;
 
 	// floppy structure
-	int selected_format;
+	int selected_format; /* 0 = ibm3740, 1 = ibm3600, 2 = ibm system 32-II */
 	int sectors_pr_track;
 	int bytes_pr_sector;
 
@@ -119,7 +115,8 @@ struct floppy_data {
 
 	// Command 
 	int command;			/* command to execute */
-	ushort sector;
+	ushort sector;			/* current sector */
+	ushort track; 			/* current track  */
 	
 };
 
