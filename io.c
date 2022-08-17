@@ -95,17 +95,14 @@ void Floppy_IO(ushort ioadd) {
 
 	trigger_floppy_thread = 0;
 
-	//if (a & 0x01) printf("Floppy WRITE %d  (%X)\r\n",a, (gA & 0xFFFF));
 	switch(a) 
 	{
 		case 0: /* IOX RDAD - Read data buffer */
-			//printf("R");
 			gA = dev->buff[dev->bufptr];
 			dev->bufptr = (dev->bufptr +1) & FDD_BUFFER_MAX;	
 			break;
 
 		case 1: /* IOX WDAT - Write data buffer */
-			//printf("W");
 			dev->buff[dev->bufptr] = gA;
 			dev->bufptr = (dev->bufptr +1) & FDD_BUFFER_MAX;
 			break;
@@ -199,8 +196,6 @@ void Floppy_IO(ushort ioadd) {
 				// Bit 14-15, Selected format
 				dev->selected_format = ((gA >> 14) & 0x03);			
 
-				printf("Drive %d format %d\r\n",dev->unit_select, dev->selected_format );
-
 				if (gA & 1<<11) // Clear selected drive
 					dev->unit_select = -1;					
 				
@@ -230,15 +225,13 @@ void Floppy_IO(ushort ioadd) {
 				// Bit 0=0 => Write difference
 				if (debug) fprintf(debugfile,"IOX 1565 - Write Difference...\n");				
 
-				//if(dev->unit_select != -1) {
+				if(dev->unit_select != -1) {
 					int diff_track = (gA >> 8) & 0x7f; // 7 bits difference setting
 					int dir_track = (gA >> 15 ) & 0x01;
 					
 					// Auto seek to new track
 					if (diff_track>0)
 					{
-						printf("Moving tracks. Diff %d  Direction %d\r\n",diff_track,dir_track);
-
 						if (dir_track)
 						{
 							dev->track += diff_track;
@@ -251,7 +244,7 @@ void Floppy_IO(ushort ioadd) {
 						if (dev->track <0) dev->track = 0;
 						if (dev->track>76) dev->track = 76;
 					}
-				//}
+				}
 			}
 
 			break;
@@ -290,7 +283,7 @@ void Floppy_IO(ushort ioadd) {
 			}
 			else
 			{
-				// Bit 8-14 Setor to be used in subsequent Read/write command
+				// Bit 8-14 Sector to be used in subsequent Read/write command
 													  // Sector ranges (octal)
 													  // 1-32 for UBM 3740
 													  // 1-17 for IBM 3600
@@ -306,9 +299,6 @@ void Floppy_IO(ushort ioadd) {
 
 		break;
 	}
-
-	//if (a!=0)
-	//	if (!(a & 0x01)) printf("Floppy READ %d  (%X)\r\n",a, (gA & 0xFFFF));
 
 	if (sem_post(&sem_io) == -1) { /* release io lock */
 		if (debug) fprintf(debugfile,"ERROR!!! sem_post failure Floppy_IO\n");
@@ -1038,8 +1028,6 @@ void floppy_thread()
 	int transfer_word_count;	
 	int error;
 
-	// TODO: Get from config
-	char *floppyimage;
 	char loadtype[]="r+";
 
 
@@ -1071,8 +1059,7 @@ void floppy_thread()
 		if (dev->unit_select!= 0)  // TODO: should be ok for unit in range 0-2
 		{
 			dev->drive_not_rdy = 1;
-			dev->busy = 0;
-			printf("Drive not ready");
+			dev->busy = 0;			
 		}
 		else
 		{			
@@ -1081,36 +1068,37 @@ void floppy_thread()
 			dev->rw_complete=0;
 			dev->seek_complete = 0;
 			dev->record_deleted=0;
+			dev->write_protect=0;
+			
 			error = 0;
 
-			
+			transfer_word_count = dev->bytes_pr_sector >> 1;
 
-			floppyimage = dev->unit[dev->unit_select]->filename;
+			
 
 			// Validate
 			if (dev->sector<=0)
 				dev->sector = 1; // Force a valid sector
 	
-			// Position insid file
+			// Position inside file
 			position = ((dev->sector-1)*dev->bytes_pr_sector) + (dev->track * dev->bytes_pr_sector * dev->sectors_pr_track);
-			transfer_word_count = dev->bytes_pr_sector >> 1;
+	
 
-			printf("Executing command %d on drive %d. Position %d Sector %d Track %d [%d]\r\n",dev->command, dev->unit_select, position, dev->sector, dev->track, dev->bufptr );
+			if (debug) fprintf(debugfile,"FloppyPIO: Executing command %d on drive %d. Position %d Sector %d Track %d [%d]\r\n",dev->command, dev->unit_select, position, dev->sector, dev->track, dev->bufptr );
 
 			// Safely open image and seek			
-			if (floppyimage != NULL)
+			if (dev->unit[dev->unit_select]->filename != NULL)
 			{
-				//printf("Opening %s\r\n", floppyimage);
-				floppy_file=fopen(floppyimage,loadtype);	
+				//printf("Opening %s\r\n", dev->unit[dev->unit_select]->filename);
+				floppy_file=fopen(dev->unit[dev->unit_select]->filename,loadtype);	
 
 				if (floppy_file==NULL)
 				{
-					//printf("File open failed %d\r\n",errno);
+					if (debug) fprintf(debugfile,"File open failed. File '%s' errno %d\r\n", dev->unit[dev->unit_select]->filename, errno);
 					error++;
 				}
 				else
 				{
-					//printf("Seeking to  %d\r\n", position);
 					if (fseek(floppy_file,position,SEEK_SET) != 0)					
 						error ++;
 				}
@@ -1121,7 +1109,6 @@ void floppy_thread()
 
 			if (error)
 			{
-				//printf("Failed to open floppy image\r\n");
 				dev->missing=1;
 				dev->busy=0;
 			}
@@ -1149,10 +1136,11 @@ void floppy_thread()
 							else
 							*/
 							{
-								dev->buff[0] = (ushort)(dev->track);
-								dev->buff[1] = (ushort)((dev->sector ) | (0x01<<8));
+								dev->buff[0] = (ushort)(dev->track<<8) |0x00;
+								dev->buff[1] = (ushort)(dev->sector<<8)|0x01;
 							}
-
+							dev->buff[2] = 0x02;
+							dev->buff[3] = 0x03;
 							break;
 			
 					case 4: // ReadData							
@@ -1167,21 +1155,18 @@ void floppy_thread()
 									break; // Exit while loop									
 								}
 								else
-								{
-									// maybe swap hi/lo ?						
-									
+								{								
+									// Swap HI/LO to make endian correct (ND is BIG ENDIAN)
 									tmp2=(read_word & 0xff00)>>8;
 									tmp2= tmp2 | ((read_word & 0x00ff) << 8);								
-									dev->buff[dev->bufptr] = (ushort)tmp2;
-									
-									//printf ("%X ", read_word);
-									//dev->buff[dev->bufptr] = (ushort)read_word;
+
+									// put value in floppy buffer
+									dev->buff[dev->bufptr] = (ushort)tmp2;									
 									dev->bufptr = (dev->bufptr + 1) & FDD_BUFFER_MAX;
 
 									transfer_word_count--;
 								}
 							}
-							//printf("\r\n");
 							break;
 			
 					case 5: // Seek
@@ -1200,7 +1185,11 @@ void floppy_thread()
 							break;		
 
 				}
-				fclose(floppy_file);
+				if (floppy_file != NULL)
+				{
+					fclose(floppy_file);
+					floppy_file = NULL;
+				}
 				floppy_command_end(dev);
 			}			
 		}	
@@ -1246,8 +1235,7 @@ void floppy_interrupt(struct floppy_data *dev)
 {
 	int s;
 	int ident = 0x11; // octal 21
-
-	//printf("IRQ 11\r\n");
+	
 
 	if(CurrentCPURunMode != STOP) 
 	{
