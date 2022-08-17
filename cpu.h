@@ -279,3 +279,5 @@ extern void disasm_set_isdata(ushort addr);
 
 extern sem_t sem_pap;
 extern struct display_panel *gPAP;
+
+extern void TickIO();

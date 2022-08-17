@@ -3679,6 +3679,9 @@ void cpurun(){
 		if (trace) trace_post(1,"S",gReg->reg[CurrLEVEL][0]);
 		if (trace) trace_flush();
 		gReg->myreg_IR = gReg->myreg_PFB; /* prefetch of next instruction should have been done while executing current one. */
+
+		// Tick IO devices SYNC (not using thread)
+		TickIO();
 	}
 }
 
