@@ -178,4 +178,5 @@ extern int mysleep(int sec, int usec);
 extern void setbit_STS_MSB(ushort stsbit, char val);
 extern void setbit(ushort regnum, ushort stsbit, char val);
 extern void interrupt(ushort lvl, ushort sub);
-
+extern void AddIdentChain(char lvl, ushort identnum, int callerid);
+extern void checkPK();

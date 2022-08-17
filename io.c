@@ -83,8 +83,7 @@ void Floppy_IO(ushort ioadd) {
 	int s;
 	int a = ioadd & 0x07;
 	int i;	
-	bool trigger_floppy_thread = 0;
-	ushort tmp;
+	bool trigger_floppy_thread = 0;	
 	struct floppy_data *dev = iodata[ioadd];
 	if (debug) fprintf(debugfile,"Floppy_IO: IOX %d - A=%d\n",ioadd,gA);
 	fflush(debugfile);
@@ -95,11 +94,13 @@ void Floppy_IO(ushort ioadd) {
 
 	trigger_floppy_thread = 0;
 
+	//if (a & 0x01) printf("Floppy WRITE %d  (%X)\r\n",a, (gA & 0xFFFF));
 	switch(a) 
 	{
 		case 0: /* IOX RDAD - Read data buffer */
 			gA = dev->buff[dev->bufptr];
 			dev->bufptr = (dev->bufptr +1) & FDD_BUFFER_MAX;	
+			//printf("R");
 			break;
 
 		case 1: /* IOX WDAT - Write data buffer */
@@ -227,23 +228,26 @@ void Floppy_IO(ushort ioadd) {
 
 				if(dev->unit_select != -1) {
 					int diff_track = (gA >> 8) & 0x7f; // 7 bits difference setting
-					int dir_track = (gA >> 15 ) & 0x01;
+					int dir_track = (gA >> 15 ) & 0x01; // 1 bit direction flag
 					
-					// Auto seek to new track
-					if (diff_track>0)
-					{
-						if (dir_track)
-						{
-							dev->track += diff_track;
-						}
-						else
-						{
-							dev->track -= -diff_track;
-						}
+					//printf("Track WAS %d\r\n", dev->track);
 
-						if (dev->track <0) dev->track = 0;
-						if (dev->track>76) dev->track = 76;
+					// Auto seek to new track
+					if (dir_track)
+					{
+						//printf("Moving IN +%d tracks ", diff_track);
+						dev->track += diff_track;
 					}
+					else
+					{
+						//printf("Moving OUT -%d tracks ", diff_track);
+						dev->track -= diff_track;
+					}
+
+					if (dev->track <0) dev->track = 0;
+					if (dev->track>76) dev->track = 76;
+
+					//printf("Track is now %d\r\n", dev->track);
 				}
 			}
 
@@ -299,6 +303,10 @@ void Floppy_IO(ushort ioadd) {
 
 		break;
 	}
+
+	//if (a!=0)
+	//	if (!(a & 0x01)) printf("Floppy READ %d  (%X)\r\n",a, (gA & 0xFFFF));
+
 
 	if (sem_post(&sem_io) == -1) { /* release io lock */
 		if (debug) fprintf(debugfile,"ERROR!!! sem_post failure Floppy_IO\n");
@@ -449,6 +457,26 @@ void mopc_out(char ch) {
 }
 
 
+bool oddParity[256] =
+{
+	0,1,1,0,1,0,0,1,1,0,0,1,0,1,1,0,
+	1,0,0,1,0,1,1,0,0,1,1,0,1,0,0,1,
+	1,0,0,1,0,1,1,0,0,1,1,0,1,0,0,1,
+	0,1,1,0,1,0,0,1,1,0,0,1,0,1,1,0,
+	1,0,0,1,0,1,1,0,0,1,1,0,1,0,0,1,
+	0,1,1,0,1,0,0,1,1,0,0,1,0,1,1,0,
+	0,1,1,0,1,0,0,1,1,0,0,1,0,1,1,0,
+	1,0,0,1,0,1,1,0,0,1,1,0,1,0,0,1,
+	1,0,0,1,0,1,1,0,0,1,1,0,1,0,0,1,
+	0,1,1,0,1,0,0,1,1,0,0,1,0,1,1,0,
+	0,1,1,0,1,0,0,1,1,0,0,1,0,1,1,0,
+	1,0,0,1,0,1,1,0,0,1,1,0,1,0,0,1,
+	0,1,1,0,1,0,0,1,1,0,0,1,0,1,1,0,
+	1,0,0,1,0,1,1,0,0,1,1,0,1,0,0,1,
+	1,0,0,1,0,1,1,0,0,1,1,0,1,0,0,1,
+	0,1,1,0,1,0,0,1,1,0,0,1,0,1,1,0
+};
+
 /*
  * Read and write to system console
  */
@@ -470,6 +498,10 @@ void Console_IO(ushort ioadd) {
 			if (tty_arr[0]->rcv_fp != tty_arr[0]->rcv_cp) { /* ok we have some data here */
 				ptr = tty_arr[0]->rcv_cp;
 				gA =  (tty_arr[0]->rcv_arr[ptr] & 0x00ff);
+
+				if (oddParity[gA]==1)
+					gA |= (1<<7); // MACM requires that the parity is EVEN
+
 				tty_arr[0]->rcv_cp++;
 				if (tty_arr[0]->rcv_fp == tty_arr[0]->rcv_cp) {
 					tty_arr[0]->in_status &= ~0x0008; /* Bit 3=0 device not ready for transfer */
@@ -1084,6 +1116,8 @@ void floppy_thread()
 			position = ((dev->sector-1)*dev->bytes_pr_sector) + (dev->track * dev->bytes_pr_sector * dev->sectors_pr_track);
 	
 
+			//printf("FloppyPIO: Executing command %d on drive %d. Position %d Sector %d Track %d [%d]\r\n",dev->command, dev->unit_select, position, dev->sector, dev->track, dev->bufptr );
+
 			if (debug) fprintf(debugfile,"FloppyPIO: Executing command %d on drive %d. Position %d Sector %d Track %d [%d]\r\n",dev->command, dev->unit_select, position, dev->sector, dev->track, dev->bufptr );
 
 			// Safely open image and seek			
@@ -1179,6 +1213,7 @@ void floppy_thread()
 					case 6: // Recalibrate,
 							dev->sector = 1;
 							dev->track=0;
+							//printf("Track is now %d\r\n", dev->track);
 							break;
 			
 					case 7: // ControlReset
@@ -1203,7 +1238,7 @@ void floppy_thread()
 
 void floppy_command_end(struct floppy_data *dev)
 {
-	mysleep(0,10000); // 10.000 us =>10 ms
+	//mysleep(0,10000); // 10.000 us =>10 ms
 	dev->busy = 0;
 	dev->ready_for_transfer =1;
 	switch(dev->command)
@@ -1243,7 +1278,7 @@ void floppy_interrupt(struct floppy_data *dev)
 				continue;       /* Restart if interrupted by handler */
 		
 		gPID |= 0x800; /* Bit 11 */				
-		//interrupt(11,0);
+		// interrupt(11,0); <= hangs
 		AddIdentChain(11,ident,dev->our_rnd_id); /* Add interrupt to ident (o21) chain, lvl13, ident code 1, and identify us */
 		
 		if (sem_post(&sem_int) == -1) 
