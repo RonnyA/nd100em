@@ -1583,14 +1583,14 @@ void hawk_IO(ushort ioadd)
 
 			dev->coreAddress = 0;
 			dev->blockAddress = 0;
-			dev->blockAddressHiBits = 0;
+			dev->addressHiBits = 0;
 			dev->wordCounter = 0;
 			dev->compareError = 0;
 			dev->hardwareError = 0;
 			dev->deviceReadyForTransfer = 1;
 		}
 
-		dev->blockAddressHiBits = ((gA >> 5) & 0x3); // Bit 16 and 17 for the address is stored in bit 5-6 bit in the ControlWord
+		dev->addressHiBits = ((gA >> 5) & 0x3); // Bit 16 and 17 for the address is stored in bit 5-6 bit in the ControlWord
 
 		dev->unit_select = (gA >> 5) & 0x3;
 		dev->command = (gA >> 11) & 0b11;
@@ -1684,13 +1684,31 @@ void hawk_transfer()
 	int surface = (dev->blockAddress >> 5) & 0x01;
 	int cylinder = (dev->blockAddress >> 8) & 0x7F;
 
-	bool isFixed = ((dev->blockAddress >> 15) & 0x01);
-	cylinder |= dev->blockAddressHiBits << 8; ;
+	bool isFixed = ((dev->blockAddress >> 15) & 0x01);	
 
 	int position = (dev->blockAddress * 2048); //>>3; // divide by 8... WHY WHY WHY ?
 	int wordsToRead = dev->wordCounter;
 		
-			
+	// NOTES - Block addressering looks very odd. It doesnt follow the expected +1 structure
+	// DUMP-PAGE 
+	// Choosing device name "DISC-10MB-1"
+	// At startup: Total no. of disk pages is 004554 => 2412 (dec) => Which is not 10 MB.. ?? 
+	// ReadTransfer for a block, reads 1024 Words (aka 2048 bytes). But this doesnt add up..
+	//
+	// 		0 => BlockAddress 0
+	//		1 => BlockAddress 8 	+8
+	//		2 => BlockAddress 16	+8
+	//		3 => BlockAddress 32	+16
+	//		3 => BlockAddress 40	+8
+	//		5 => BlockAddress 48	+8
+	//		6 => BlockAddress 64	+16
+	//		7 => BlockAddress 72	+8
+	//		8 => BlockAddress 80	+8
+	//		9 => BlockAddress 96	+16
+	//		10 => BlockAddress 104	+8
+	//		11 => BlockAddress 112	+8
+	//		12 => BlockAddress 128	+16
+
 
 	if (debug) fprintf(debugfile,"HAWK: Executing command %d on drive %d blockAddress %d [sector %d cylinder %d surface %d] => position %d\n", dev->command, dev->unit_select, dev->blockAddress, sector, cylinder, surface, position);
 	if (debug) fflush(debugfile);
@@ -1764,13 +1782,15 @@ void hawk_transfer()
 					endian_word= endian_word | ((read_word & 0x00ff) << 8);								
 
 					// Write to memory				
-					//if (debug) fprintf(debugfile,"X: 0x%X => [%d]  \n", endian_word, dev->coreAddress);
+					//if (debug) fprintf(debugfile,"X: 0x%X => [%d, %d]  \n", endian_word, dev->coreAddress,dev->addressHiBits	);
+					
+					ulong fulladdress = dev->coreAddress | dev->addressHiBits<<16;
+					PhysMemWrite(endian_word, fulladdress);
+					//PhysMemWrite(wordsToRead, fulladdress);
 
-					//PhysMemWrite(endian_word, dev->coreAddress);
-					PhysMemWrite(wordsToRead, dev->coreAddress);
 					dev->coreAddress++;
 
-					// next please
+					// next please 
 					wordsToRead--;							
 				}						
 			}						
@@ -1778,6 +1798,38 @@ void hawk_transfer()
 
 		case 1: // WriteTransfer
 			if (debug) fprintf(debugfile,"HAWK: Starting WriteTransfer, disk position %d wc %d", position, wordsToRead);
+			if (debug) fflush(debugfile);					
+
+			error = 0;
+			while (wordsToRead>0)
+			{
+				ulong fulladdress = dev->coreAddress | dev->addressHiBits<<16;
+				endian_word = PhysMemRead(fulladdress);
+
+				// Swap HI/LO to make endian correct (ND is BIG ENDIAN)
+				endian_word=(read_word & 0xff00)>>8;
+				endian_word= endian_word | ((read_word & 0x00ff) << 8);								
+
+					
+				readcnt = fwrite(&endian_word,1,2,hawk_file);							
+				if (readcnt <=0)
+				{					
+					dev->hardwareError=1;
+					dev->deviceActive=0;
+				
+					wordsToRead = 0;
+					error = 1;
+					break; // Exit while loop						
+				}
+				
+				// Move memory pointer
+				dev->coreAddress++;
+
+				// next please 
+				wordsToRead--;							
+			}						
+			break;
+
 			break;
 		case 2: //ReadParity
 			if (debug) fprintf(debugfile,"HAWK: Starting ReadParity, disk position %d wc %d", position, wordsToRead);
@@ -1883,13 +1935,7 @@ void hawk_thread()
 {
 	int s;
 	struct hawk_data *dev;
-	FILE *hawk_file;
-	char loadtype[]="r+";	
-	int position;
-	int error;
-	ushort read_word;
-	ushort endian_word;
-	int readcnt;
+	
 	// INIT vars
 
 

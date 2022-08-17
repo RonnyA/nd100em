@@ -155,10 +155,12 @@ struct hawk_data {
 
 	//  pointers
 	ulong coreAddress;
+	int addressHiBits;	
+	
 	ushort wordCounter;
 	ushort sectorCounter; // wtf is this ?
 	int blockAddress;
-	int blockAddressHiBits;	
+	
 
 	bool irq_rdy;
 	bool irq_err;
@@ -218,6 +220,7 @@ extern void AddIdentChain(char lvl, ushort identnum, int callerid);
 extern void checkPK();
 
 /* HAWK 10 MB HDD*/
+void hawk_transfer();
 void hawk_init();
 void hawk_IO(ushort ioadd);
 void hawk_thread();
