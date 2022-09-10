@@ -610,8 +610,10 @@ void Setup_IO_Handlers () {
 	IO_Handler_Add(192,199,&Console_IO,NULL);		/* Console terminal 300-307 octal */
 	IO_Handler_Add(880,887,&Floppy_IO,NULL);		/* Floppy Disk 1 at 1560-1567 octal */	
 	IO_Handler_Add(320,327,&hawk_IO,NULL);		/* Disk System I at 500-507 octal. , ident 01, interrupt 11*/	
+	IO_Handler_Add(864,871,&bigdisk_IO,NULL);		/* BigDisk Disk System I at 1540-1547 octal. , ident o17 (d15), interrupt 11*/	
 	floppy_init(); // removed init here, asits initialized from nd100lib.c
 	hawk_init();	
+	bigdisk_init();
 }
 
 /*
@@ -702,6 +704,55 @@ void hawk_init()
 	}	
 	IO_Data_Add(320,327,ptr);
 }
+
+
+void bigdisk_init()
+{
+	struct bigdisk_data *ptr;
+	struct bigdisk_unit *ptr2;
+	
+	ptr =calloc(1,sizeof(struct  bigdisk_data));
+	if (ptr) {
+		ptr->our_rnd_id=rand(); /* our unique identifier for not generating multiple idents on the same device, TODO: Check if needed*/
+
+		ptr2 = calloc(1,sizeof(struct bigdisk_unit));
+		if (ptr2) {
+			ptr->unit[0] = ptr2;
+			if(BIGDISK_IMAGE_NAME) {
+				ptr->unit[0]->filename = strdup(BIGDISK_IMAGE_NAME);
+				
+				/*
+				ptr->unit[0]->readonly = HAWK_IMAGE_RO;
+				if (HAWK_IMAGE_RO && ptr->unit[0]->filename) {
+					ptr->unit[0]->fp = fopen(HAWK_IMAGE_NAME, "r");
+				} else if(ptr->unit[0]->filename){
+					ptr->unit[0]->fp = fopen(_IMAGE_NAME, "r+");
+				}
+				*/
+			}
+		}
+		ptr2 = calloc(1,sizeof(struct bigdisk_unit));
+		if (ptr2) {
+			ptr->unit[1] = ptr2;
+		}
+		ptr2 = calloc(1,sizeof(struct bigdisk_unit));
+		if (ptr2) {
+			ptr->unit[2] = ptr2;
+		}
+
+
+		// Configure disk to 38 MB disk
+		ptr->bytesPrSector = 1024; // 1024bytes / 512 Words		 
+		ptr->headsPrCylinder = 5; // HPC
+		ptr->sectorsPrTrack = 18; // SPT
+		ptr->maxCylinders = 411;  // 411 = 38 MB, 823 = 75 MB
+		ptr->deviceType = 0; // 0=old, 1=new
+	}	
+
+
+	IO_Data_Add(864,871,ptr); // 1540-1547 oct
+}
+
 
 /*
  * Here we do the stuff to setup a socket and listen to it.
@@ -1961,6 +2012,314 @@ void hawk_thread()
 
 }
 
+int tick_bigdisk_end = 0;
+int tick_bigdisk_error = 0;
+
+void bigdisk_IO(ushort ioadd) 
+{
+	bool oldIRQ;
+	struct bigdisk_data *dev = iodata[ioadd];
+	int s;
+
+	bool trigger_bigdisk_irq;
+
+	while ((s = sem_wait(&sem_io)) == -1 && errno == EINTR) /* wait for io lock to be free and take it */
+		continue; /* Restart if interrupted by handler */
+
+
+
+	//if (debug) fprintf(debugfile,"BIGDISK_IO: IOX %d - A=%d\n",ioadd,gA);	
+	//fflush(debugfile);  
+
+	int reladd = (int)(ioadd & 0x07); /* just get lowest three bits, to work with both disk system I and II */
+
+	if (debug)
+	{
+		if (reladd & 0x01) 
+			 fprintf(debugfile,"BIGDISK WRITE %d  (0x%X)\r\n",reladd, (gA & 0xFFFF));
+	}
+
+	switch(reladd) {
+		case 0:
+			break;
+		case 1:
+			break;
+		case 3:
+			break;
+		case 4:
+			break;
+		case 5:
+			break;
+		case 6:
+			break;
+		case 7:
+			break;
+		break;
+	}
+
+	if (sem_post(&sem_io) == -1) { /* release io lock */
+		if (debug) fprintf(debugfile,"ERROR!!! sem_post failure bigdisk_IO\n");
+		CurrentCPURunMode = SHUTDOWN;
+	}
+
+	if (debug)
+	{
+		// Log that we Read value, but dont log repeting values (ie typically loop on reading status reg)
+		if ((reladd & 0x01) ==0)
+		{
+			if (gA != lastA)				
+				fprintf(debugfile,"BIGDISK READ %d  (0x%X)\r\n",reladd, (gA & 0xFFFF));
+			lastA = gA;
+		}
+	}
+		 
+
+	if (trigger_bigdisk_irq)
+	{
+		if (debug) fprintf(debugfile,"BIGDISK: Triggering  IRQ...");
+		bigdisk_interrupt(dev);
+		if (debug) fprintf(debugfile,"Returned\n");
+	}
+		
+
+	
+	return;
+}
+
+
+long ConvertCHStoLBA(struct bigdisk_data *dev,int cylinder, int head, int sector)
+{
+	// LBA = (C × HPC + H) × SPT + (S − 1)
+	if ((cylinder == 0) && (head == 0) && (sector == 0)) return 0; // invalid, but used by SeekToZero
+	return (cylinder * dev->headsPrCylinder + head) * dev->sectorsPrTrack + (sector - 1);
+}
+
+void ExecuteBigDiskGO(struct bigdisk_data *dev)
+{
+	FILE *hdd_file;
+	char loadtype[]="r+";	
+
+	ushort read_word;
+	ushort endian_word;
+	int readcnt;
+	
+
+	// Calculate file offset for read/write operations
+	int sector = dev->blockAddressI & 0xFF;
+	int head = (dev->blockAddressI >> 8) & 0xFF; // (0 - maxSurfaces);
+	int cylinder = dev->blockAddressII; // = Cylinder(or Track as on a floppy ?)
+
+	long lba = ConvertCHStoLBA(dev,cylinder, head, sector);
+
+	long position = lba * dev->bytesPrSector;
+
+
+
+	// Safely open image and seek			
+	if (dev->unit[dev->selectedUnit]->filename != NULL)
+	{				
+		hdd_file=fopen(dev->unit[dev->selectedUnit]->filename,loadtype);	
+
+		if (hdd_file==NULL)
+		{
+			if (debug) fprintf(debugfile,"BigDisk: File open failed. File '%s' errno %d\n", dev->unit[dev->selectedUnit]->filename, errno);
+			dev->hardwareError=1;
+			dev->deviceActive=0;
+			return;
+		}
+
+		if (fseek(hdd_file,position,SEEK_SET) != 0)					
+		{
+			if (debug) fprintf(debugfile,"BigDisk: File seek %ld failed.\n",position);
+			dev->hardwareError=1;
+			dev->deviceActive=0;
+			return;
+		}
+	}
+	else
+	{
+		if (debug) fprintf(debugfile,"BigDisk: ERROR - No filename defined\n");
+		dev->seekError=true;
+		dev->deviceActive=0;
+		return;
+	}
+
+
+	int error = 0;
+	bool queue_int = false;
+
+
+	// Read out information from floppy - is it write protceted ?
+	//dev->diskIsWriteProtected = device.read_only;
+
+	if (debug) fprintf(debugfile,"[CoreAddress %04X | %04X [%d] on drive %d. WC %d CHS [%d %d %d] => LBA [%08lX] => Position %ld\n", dev->coreAddress, dev->coreAddressHiBits,  dev->deviceOperation, dev->selectedUnit, dev->wordCounter, cylinder, head, sector, lba,position);
+	if (debug) fflush(debugfile);
+			
+
+	switch (dev->deviceOperation)
+	{
+		case 0: // DeviceOperation.ReadTransfer
+			//Log($"Starting READ TRANSFER data on drive position {position}, WordCount {wordCounter}");
+			while (dev->wordCounter > 0)
+			{
+				readcnt = fread(&read_word,1,2,hdd_file);		
+
+				if (readcnt <=0)
+				{
+					
+					dev->hardwareError=1;
+					dev->deviceActive=0;
+					
+					dev->wordCounter = 0;
+					error = 1;
+					break; // Exit while loop	
+					
+				}
+				else
+				{	
+					// Swap HI/LO to make endian correct (ND is BIG ENDIAN)
+					endian_word=(read_word & 0xff00)>>8;
+					endian_word= endian_word | ((read_word & 0x00ff) << 8);		
+
+					// Write to memory				
+					//if (debug) fprintf(debugfile,"X: 0x%X => [%d, %d]  \n", endian_word, dev->coreAddress,dev->addressHiBits	);
+					
+					ulong fulladdress = dev->coreAddress | dev->coreAddressHiBits<<16;
+					PhysMemWrite(endian_word, fulladdress);
+					dev->coreAddress++;
+					dev->wordCounter--;
+				}						
+			}
+			queue_int = true;
+			break;
+		case 1: // DeviceOperation.WriteTransfer:
+
+			//Log($"Starting WRITE data on drive position {position}");
+
+			if (dev->diskIsWriteProtected)
+			{
+				if (debug) fprintf(debugfile,"HDD Disk is WRITE PROTECTED\n");
+				// Gives status bit 13 if trying to write on a write protected disk.
+				dev->diskUnitNotReady = true;
+				return;
+			}
+
+			// The block register I must be set to 125252 and block register II must be set to 1252 prior to a transfer test mode.
+
+			while (dev->wordCounter > 0)
+			{
+
+				ulong fulladdress = dev->coreAddress | dev->coreAddressHiBits<<16;
+				endian_word = PhysMemRead(fulladdress);
+				
+				readcnt = fwrite(&endian_word,1,2,hdd_file);							
+				if (readcnt <=0)
+				{
+					dev->hardwareError=1;
+					dev->deviceActive=0;
+					
+					dev->wordCounter = 0;
+					error = 1;
+					break; // Exit while loop	
+				}
+
+				// Move memory pointer
+				dev->coreAddress++;
+
+				// next please 
+				dev->wordCounter--;
+			}
+			queue_int = true;
+			break;
+
+		case 2: //DeviceOperation.ReadParityTransfer:
+			if (debug) fprintf(debugfile,"Starting ReadParity data on drive position %ld\n",position);
+			queue_int = true;
+			break;
+		case 3: //DeviceOperation.CompareTransfer:
+			if (debug) fprintf(debugfile,"Starting Comparer data on drive position %ld\n",position);
+			queue_int = true;
+			break;
+		case 4: //DeviceOperation.InitiateSeek:
+			if (debug) fprintf(debugfile,"Starting INITIATE SEEK on drive position %ld\n",position);
+			dev->onCylinder = true;
+			dev->seekCompleteBits |= 1 << dev->selectedUnit;
+			dev->seekError = false;
+			queue_int = true;
+			break;
+		case 5: //DeviceOperation.WriteFormat:
+			if (debug) fprintf(debugfile,"Starting WRITE FORMAT on drive position %ld\n",position);
+			queue_int = true;
+			break;
+		case 6: //DeviceOperation.SeekCompleteSearch:
+			dev->onCylinder = true;
+			dev->seekError = false;
+			dev->seekCompleteBits = 1 << dev->selectedUnit;
+			queue_int = true;
+			break;
+		case 7: //DeviceOperation.ReturnToZeroSeek:
+			dev->seekError = false;
+			dev->onCylinder = true;
+			dev->seekCompleteBits |= 1 << dev->selectedUnit;			
+			queue_int = true;
+			break;
+		case 8: //DeviceOperation.RunECCOperation:
+			break;
+		default:
+			//error =-1;
+			break;
+	}
+	//printf("closing DISK file\n");
+	if (hdd_file != NULL)
+	{
+		fclose(hdd_file);
+		hdd_file = NULL;
+	}	
+
+	if (queue_int)
+	{
+		tick_bigdisk_end = 10;  // In 10 CPU ticks trigger bigdisk_command_end
+		tick_bigdisk_end = error; // and this is the saved error code
+	}
+}
+
+void bigdisk_command_end(int error)
+{
+	struct bigdisk_data *dev = iodata[864]; //TODO: Find a better way to get pointer
+
+	dev->transferComplete = true; //ControllerFinishedWithDeviceOperation = true;
+	dev->deviceActive = false;
+	dev->wcFlipFlop = false;
+	if ((dev->irq_rdy_en) || (dev->irq_err_en && error))
+		 bigdisk_interrupt(dev);
+
+}
+
+void bigdisk_interrupt(struct bigdisk_data *dev)
+{
+	int s;
+	int ident = 017; //Bigdisk uses 017 for address 1540-1547
+	
+	if (debug) fprintf(debugfile,"BIGDISK:Interrupt 11\n");
+
+	if(CurrentCPURunMode != STOP) 
+	{
+		while ((s = sem_wait(&sem_int)) == -1 && errno == EINTR) /* wait for interrupt lock to be free */
+				continue;       /* Restart if interrupted by handler */
+		
+		gPID |= 0x800; /* Bit 11 */				
+		// interrupt(11,0); <= hangs
+		AddIdentChain(11,ident,dev->our_rnd_id); /* Add interrupt to ident (o21) chain, lvl13, ident code 1, and identify us */
+		
+		if (sem_post(&sem_int) == -1) 
+		{ 
+			/* release interrupt lock */
+			if (debug) fprintf(debugfile,"ERROR!!! sem_post failure DOMCL\n");
+			CurrentCPURunMode = SHUTDOWN;
+		}
+		checkPK();
+	}
+}
 
 
 // need to use this to get the HAWK registers to change after N number of ticks
@@ -1975,4 +2334,15 @@ void TickIO()
 			tick_hawk_error = 0;
 		}
 	}
+
+	if (tick_bigdisk_end>0)
+	{
+		tick_bigdisk_end--;
+		if (tick_bigdisk_end<=0)
+		{
+			bigdisk_command_end(tick_bigdisk_error);
+			tick_bigdisk_error = 0;
+		}
+	}
+
 }

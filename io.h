@@ -169,12 +169,80 @@ struct hawk_data {
 };
 
 
+struct bigdisk_unit {
+	
+	char *filename; /* hdd image name */
+	char access;	/* 'r' = readonly, 'w' = read/write */
+};
+
+struct bigdisk_data {
+
+	// Disc structure
+
+	int bytesPrSector;
+	int headsPrCylinder;
+	int sectorsPrTrack;
+	int maxCylinders;
+	int deviceType;
+
+	// Interrupt and IDENT tracking
+	int our_rnd_id;
+
+	// Flags
+	bool irq_rdy_en;	/* device ready for transfer enable */
+	bool irq_err_en;	/* error interrupt enable */	
+
+	// Register bits
+	bool deviceActive;
+	bool testMode;
+	bool transferComplete; //ControllerFinishedWithDeviceOperation;
+	bool diskUnitNotReady;
+	bool onCylinder;
+	bool marginalRecovery;
+	bool diskIsWriteProtected;
+	int selectedUnit;
+
+
+	int seekCompleteBits;
+	bool CWRBit;
+	bool wcFlipFlop;
+	
+	//device command
+	int deviceOperation;
+	
+	// Errors
+	bool compareError;
+	bool hardwareError;
+	bool writeProtectError;
+	bool seekError;
+	
+	//  pointers
+	int coreAddress;
+	int coreAddressHiBits;
+	
+	int blockAddressI;
+	int blockAddressII;
+
+	int wordCounter;
+	int wordCounterHI;
+	int eccControl;
+	int eccControlHI;
+	int eccPatternRegister;
+
+
+
+	int unit_select;	/* actual hdd 0-3 */
+	struct bigdisk_unit (*unit[4]);	/* hdd drive unit 0-3 pointers to private data */
+};
+
 
 /* TEMP!!! Solution, until we have completely changed config parsing*/
 char *FDD_IMAGE_NAME;
 bool FDD_IMAGE_RO;
 
 char *HAWK_IMAGE_NAME;
+
+char *BIGDISK_IMAGE_NAME;
 
 #define TERM_IO_NUM 46
 ushort reg_TerminalIO[TERM_IO_NUM][6] = {{0,0,0,0,0,0},{0,0,0,0,0,0},{0,0,0,0,0,0},{0,0,0,0,0,0},{0,0,0,0,0,0},{0,0,0,0,0,0},{0,0,0,0,0,0}};
@@ -219,6 +287,9 @@ extern void interrupt(ushort lvl, ushort sub);
 extern void AddIdentChain(char lvl, ushort identnum, int callerid);
 extern void checkPK();
 
+extern void PhysMemWrite(ushort value, ulong addr);
+
+
 /* HAWK 10 MB HDD*/
 void hawk_transfer();
 void hawk_init();
@@ -226,7 +297,15 @@ void hawk_IO(ushort ioadd);
 void hawk_thread();
 void hawk_command_end(int error);
 void hawk_interrupt(struct hawk_data *dev);
-extern void PhysMemWrite(ushort value, ulong addr);
+
+/* Bigdisk 38MB+ HDD */
+void bigdisk_transfer();
+void bigdisk_init();
+void bigdisk_IO(ushort ioadd);
+void bigdisk_command_end(int error);
+void bigdisk_interrupt(struct bigdisk_data *dev);
+void ExecuteBigDiskGO(struct bigdisk_data *dev);
+long ConvertCHStoLBA(struct bigdisk_data *dev,int cylinder, int head, int sector);
 
 // Avoding the £$@$@£ Thread Sync
 void TickIO();
