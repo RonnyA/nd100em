@@ -228,7 +228,7 @@ struct bigdisk_data {
 	int eccControl;
 	int eccControlHI;
 	int eccPatternRegister;
-
+	int eccCount;
 
 
 	int unit_select;	/* actual hdd 0-3 */
@@ -288,7 +288,9 @@ extern void AddIdentChain(char lvl, ushort identnum, int callerid);
 extern void checkPK();
 
 extern void PhysMemWrite(ushort value, ulong addr);
-
+extern ushort PhysMemRead(ulong addr);
+extern void MemoryWrite(ushort value, ushort addr, bool is_P_relative, unsigned char byte_select);
+extern ushort MemoryRead(ushort addr, bool is_P_relative);
 
 /* HAWK 10 MB HDD*/
 void hawk_transfer();

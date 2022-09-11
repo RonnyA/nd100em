@@ -68,6 +68,7 @@ extern char *FDD_IMAGE_NAME;
 extern bool FDD_IMAGE_RO;
 
 extern char *HAWK_IMAGE_NAME;
+extern char *BIGDISK_IMAGE_NAME;
 
 /* semaphore to release signal thread when terminating */
 sem_t sem_sigthr;

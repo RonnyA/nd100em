@@ -409,6 +409,13 @@ int nd100emconf(){
 			HAWK_IMAGE_NAME = strdup(tmpstr);
 	}
 
+	setting = config_lookup(pCFG, "bigdisk_image");
+	if (setting) {
+		tmpstr = (char *)config_setting_get_string(setting);
+		if (tmpstr)
+			BIGDISK_IMAGE_NAME = strdup(tmpstr);
+	}
+
 
 	config_destroy(pCFG);
 	free(pCFG);

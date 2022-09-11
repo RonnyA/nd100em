@@ -2,7 +2,7 @@
 
 CC= gcc
 #CFLAGS = -ggdb
-CFLAGS = -Wall -O3 -pg -fno-aggressive-loop-optimizations -g
+CFLAGS = -Wall -O3 -pg -fno-aggressive-loop-optimizations -ggdb
 
 OBJS=cpu.o mon.o decode.o float.o floppy.o io.o rtc.o nd100lib.o nd100em.o
 

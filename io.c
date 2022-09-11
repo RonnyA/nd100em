@@ -56,8 +56,11 @@ sem_t sem_pap;
 struct display_panel *gPAP;
 
 // Variables used for the IO Tick routine
-int tick_hawk_end = 0;
-int tick_hawk_error=0;
+int tick_hawk_end;
+int tick_hawk_error;
+int tick_bigdisk_end;
+int tick_bigdisk_error;
+
 
 /*
  * IOX and IOXT operation, dummy for now.
@@ -92,8 +95,8 @@ void Floppy_IO(ushort ioadd) {
 	int i;	
 	bool trigger_floppy_thread = 0;	
 	struct floppy_data *dev = iodata[ioadd];
-	if (debug) fprintf(debugfile,"Floppy_IO: IOX %d - A=%d\n",ioadd,gA);
-	fflush(debugfile);
+	//if (debug) fprintf(debugfile,"Floppy_IO: IOX %d - A=%d\n",ioadd,gA);
+	//fflush(debugfile);
 	
 
 	while ((s = sem_wait(&sem_io)) == -1 && errno == EINTR) /* wait for io lock to be free and take it */
@@ -131,7 +134,7 @@ void Floppy_IO(ushort ioadd) {
 			gA |= (dev->rw_complete) ? (1<<6) : 0;	/* ReadWrite complete (bit 6) */
 			gA |= (dev->seek_complete) ? (1<<7) : 0;	/* Seek Complete (bit 7) */
 
-			if (debug) fprintf(debugfile,"Floppy_IO: IOX %o RSR1 - A=%04x\n",ioadd,gA);
+			//if (debug) fprintf(debugfile,"Floppy_IO: IOX %o RSR1 - A=%04x\n",ioadd,gA);
 			break;
 
 		case 3: /* IOX WCWD - Write control word */		
@@ -178,7 +181,7 @@ void Floppy_IO(ushort ioadd) {
 				}			
 			}	
 			
-			if (debug) fprintf(debugfile,"Floppy_IO: IOX %o WCWD - A=%04x\n",ioadd,gA);
+			//if (debug) fprintf(debugfile,"Floppy_IO: IOX %o WCWD - A=%04x\n",ioadd,gA);
 			break;
 
 		case 4: /* IOX RSR2 - Read status register No. 2 */
@@ -187,7 +190,7 @@ void Floppy_IO(ushort ioadd) {
 			gA |= (dev->write_protect) ? (1<<9) : 0;	/* set if trying to write to write protected diskette (file) (bit 9) */
 			gA |= (dev->missing) ? (1<<11) : 0;		/* sector missing  (bit 11) */
 
-			if (debug) fprintf(debugfile,"Floppy_IO: IOX %o RSR2 - A=%04x\n",ioadd,gA);
+			//if (debug) fprintf(debugfile,"Floppy_IO: IOX %o RSR2 - A=%04x\n",ioadd,gA);
 
 			break;
 
@@ -749,6 +752,8 @@ void bigdisk_init()
 		ptr->deviceType = 0; // 0=old, 1=new
 	}	
 
+	tick_bigdisk_end=0;
+	tick_bigdisk_error=0;
 
 	IO_Data_Add(864,871,ptr); // 1540-1547 oct
 }
@@ -2012,16 +2017,14 @@ void hawk_thread()
 
 }
 
-int tick_bigdisk_end = 0;
-int tick_bigdisk_error = 0;
 
 void bigdisk_IO(ushort ioadd) 
 {
 	bool oldIRQ;
 	struct bigdisk_data *dev = iodata[ioadd];
 	int s;
-
-	bool trigger_bigdisk_irq;
+	bool oldInterruptEnabled;
+	bool trigger_bigdisk_irq=false;
 
 	while ((s = sem_wait(&sem_io)) == -1 && errno == EINTR) /* wait for io lock to be free and take it */
 		continue; /* Restart if interrupted by handler */
@@ -2033,26 +2036,327 @@ void bigdisk_IO(ushort ioadd)
 
 	int reladd = (int)(ioadd & 0x07); /* just get lowest three bits, to work with both disk system I and II */
 
-	if (debug)
+	if (false)
+	//if (debug)
 	{
 		if (reladd & 0x01) 
 			 fprintf(debugfile,"BIGDISK WRITE %d  (0x%X)\r\n",reladd, (gA & 0xFFFF));
 	}
-
+	
 	switch(reladd) {
 		case 0:
+			if (dev->CWRBit)
+			{
+				// TODO: Add flip flopp
+				// The Word counter register is read the same way as the memory address register.
+				// After a transfer, the upper/ lower memory address(or word count) control bit(flip—flop) is reset.A Read Status instruction(DEV.NO. + 4) or a Device Clear will also reset this bit
+
+				gA = dev->wordCounter;
+			}
+			else
+			{
+				// TODO: Add flip flopp
+				// The Memory Address regster is read by two successive IOX instructions.
+				// The first one gets the lower 16 bits(Address bits 0—15 into the A - reg. 0—15), and the second one gets the upper bits
+				// (Address bits 16 - 23 into A—reg. 0 - 7). When reading the most significant bits, the upper byte of the A—reg. is undefined and has tobe masked.
+
+
+				gA = dev->coreAddress;
+
+			}
 			break;
+
 		case 1:
+			if (dev->CWRBit) // Count Memory Address & Word Count
+			{
+				// TODO: FIX
+
+				// Count Memory Address & Word Count: This instruction is implemented for maintenance purposes only.By first loading the control word with
+				// 102010, a special test mode, each of these instructions will increment the memory address and decrement the word count by one. (Refer to section 3.1, the DMA transfer.)
+
+			}
+			else // Load Memory Address
+			{
+				// TODO: Add flip flopp
+				// Ihe Load Memory Address Register is loaded by two successive instructions. The first loads the 8 upper bits(A-reg. 0 - 7 into Address bits 16 - 23),
+				// and the second one loads the lower 16 bits(A—reg. 0 - 15 into Address bits 0 - 15).
+				// After a transfer, the upper/ lower memory address control bit(flip—flop) is reset.A Read Status instruction(DEV.NO. +4) or a Device Clear will also reset this bit.
+
+				dev->coreAddress = gA;
+			}
 			break;
-		case 3:
+
+		case 2:
+			if (dev->CWRBit)
+			{
+				gA = (ushort)dev->eccCount;
+			}
+			else
+			{
+				gA = 0;
+				gA = (ushort)(dev->seekCompleteBits & 0xF);  // 0-3
+															//4-7 - Not used
+				gA |= (ushort)(dev->selectedUnit & 0x03 << 8);  //8-9
+																// 10 - Not used
+				if (dev->seekError) gA |= (1 << 11);
+				if (dev->deviceType ==1)
+				{
+					gA |= (1 << 12);  // 12 = Always 1 for 15Mhz SMD. This bit was always 0 on the NORD—10 controller.
+				}
+			}
+			break;
+		case 3:	
+			if (dev->CWRBit)
+			{
+				dev->blockAddressII = gA;
+			}
+			else
+			{
+				dev->blockAddressI = gA;
+			}
 			break;
 		case 4:
+			if (dev->CWRBit)
+			{
+
+				dev->eccPatternRegister = 0;
+
+				/*
+
+				Read ECC Pattern Register:
+
+				+----+----+----+----+----+--------------+
+				| 15 | 14 | 13 | 12 | 11 | 1O    -    O |
+				+----+----+----+----+----+--------------+
+				| 1  | 0  |  1 |  1 | 1  | Error pattern|
+				+----+----+----+----+----+--------------+
+				Bits
+					0 - 10 Error pattern.
+					11—13 Always 1.
+					14 Always 0.To distinguish from the old HD—100 SMD controller.
+					15 Always 1.Read~back of Control Word bit 15.
+
+				*/
+
+				// Bits 0-10
+				//eccPatternRegister |= eccErrorPattern & 0x3FF; NOT USED.. yet
+
+
+				// Bits 11-13, Always one
+				dev->eccPatternRegister |= (0b111 << 11);
+
+				// Bits 14 - To distinguish from the old HD-100 SMD controller
+				if (dev->deviceType == 0)
+					dev->eccPatternRegister |= (1 << 14);
+
+
+				// Bit 15 - Always 1. Read back of control word bit 15
+				if (dev->CWRBit) dev->eccPatternRegister |= (1 << 15);
+
+				gA = dev->eccPatternRegister;
+			}
+			else
+			{
+				gA = 0;
+				//Read status register
+				if (dev->irq_rdy_en) gA |= (1 << 0);
+				if (dev->irq_err_en) gA |= (1 << 1);
+				if (dev->deviceActive) gA |= (1 << 2); // Controller active
+				if (dev->transferComplete) gA |= (1 << 3);
+				if (dev->hardwareError) gA |= (1 << 4);    // inclusive or of errror conditions (bits 5,6,7,8 and 13)
+															//if () value = (1 << 5);	// Illegal load (ie load while status bit 2 is true or load of block address while the unit is not on cylinder)
+															//if () value = (1 << 6);	// Timeout
+				if (dev->hardwareError) gA |= (1 << 7);    // Hardware error (disk fault, missing clocks, missing servo clokc, ECC parity error)
+															//if () value = (1 << 8);	// Address mismatch
+															//if () value = (1 << 9);	// Data error
+															// if () value = (1 << 10); // Compare error
+															//if () value = (1 << 11);	// DMA Channel error
+															//if () value = (1 << 12);	// Abnormal completions						
+				if (dev->diskUnitNotReady) gA |= (1 << 13); // Disk unit not ready
+				if (dev->onCylinder) gA |= (1 << 14); // OnCylinder
+				if (dev->CWRBit) gA |= (1 << 15);  // Register Multiplex bit (from CWR bit 15)
+			}
+
+			dev->wcFlipFlop = false; // Clear flip flop as stated in documentation
 			break;
 		case 5:
+			/*
+				Bit:
+					0		Enable interrupt on device not active
+					1		Enable interrupt on errors
+					2		Active
+								When control word bit 2 is activated, the content of the block address register II (cylinder number) is transfered to the servo system in the selected unit.
+								Logic in the unit will calculate the difference between the current cylinder and the new one. The difference and direction will command the servo to seek the new cylinder.
+					3		Test mode
+					4		Device clear (clear the active flip-flop) and controller error bas,
+					5		Address bit 16 - Extension of core address regeter
+					6		Address bit 17 - Extension of core address regeter
+
+					7-9		Unit select (maximum 4 units)
+					10		Marginal recovery cycle
+					11-14	Device operation code
+					15		Register multiplex bit					 
+			*/
+
+			oldInterruptEnabled = dev->irq_rdy_en;
+			dev->irq_rdy_en = (gA & 1 << 0) != 0;
+			if (dev->irq_rdy_en && !oldInterruptEnabled)
+			{
+				trigger_bigdisk_irq = true;
+			}
+			dev->irq_err_en = (gA & 1 << 1) != 0;
+			dev->deviceActive = (gA & 1 << 2) != 0;
+			dev->testMode = (gA & 1 << 3) != 0;
+
+			dev->coreAddressHiBits = ((ushort)((gA >> 5) & 0b11));
+			dev->selectedUnit = ((gA >> 7) & 0b111);
+			dev->marginalRecovery = (gA & 1 << 10) != 0;
+			dev->deviceOperation = ((gA >> 11) & 0b1111);
+			dev->transferComplete = false;
+
+			if ((gA & 1 << 4) != 0)
+			{
+				// DEVICE CLEAR
+				// Clear active flip-flop and error conditions
+				dev->deviceActive  = false;
+
+				// Clear errors
+				dev->diskUnitNotReady = false;
+
+				dev->coreAddress = 0;
+				dev->blockAddressI = 0;
+				dev->blockAddressII = 0;
+				dev->wordCounter = 0;
+				dev->coreAddressHiBits = 0;
+
+				// Ready for transfer (?)
+				dev->transferComplete = false;
+
+				// Clear flip-flop
+				dev->wcFlipFlop = false;
+
+				dev->seekCompleteBits = 1 << dev->selectedUnit;
+			}
+
+
+			dev->CWRBit = (gA & (1 << 15)) != 0; // Some rgisters switch depending on this bit					
+
+			// We are "always" on-cylinder :)
+			dev->onCylinder = true;
+
+			if (dev->deviceActive)
+			{
+				ExecuteBigDiskGO(dev);
+			}
 			break;
 		case 6:
+			if (dev->CWRBit)
+			{
+				gA = (ushort)dev->blockAddressII;
+			}
+			else
+			{
+				gA = (ushort)dev->blockAddressI;
+			}
 			break;
 		case 7:
+			if (dev->CWRBit)
+			{
+				// Load ECC Control
+
+				/*
+				ECC CONTROL
+
+				Bit 0: Reset ECC
+					This bit wil cause the ECC polynomisis to reset to the zero initial state. Ths function is only used when a dats error has occurred,
+					otherwise the polynomials automatically go to the zero state upon completion of a Read or Write. Device Cleer function will also reset ECC.
+
+				Bit 1: TST — Force Parity Error
+					Used for maintenance purposes only, This bit will force ECC parity error to be set.
+
+				Bit 2: Long
+					Used for maintenance purposes only. When 8 sector is read or writwen, the date field of the sector is extended by 64 bits (
+					the length of the ECC appendage plus “end of record” byte). The date and the extra bits sre read into of written from the memory of the CPU.
+					This function i¢ used to diagnose the operation of the ECC circuits and can be used with the following Device Operations: MO, M1, M2 and M3.
+					Thas bit is “echoed” in ECR bit 14.
+
+				// NEW BITS FOR 15MHZ SMD DISK CONTROLLERS
+
+				Bit 3: Format A
+				Bit 4: Format B
+				Bit 5: Format C
+				Bit 6: Format D
+
+				*/
+
+
+
+				if ((dev->wcFlipFlop) || (dev->deviceType == 0))
+				{
+					// Load Word Count
+
+					// Load Word Counter; The Word Count register is increased from 16 to 24 bits, and is loaded by two successive instructions.
+					// The first loads the 8 upper bits(A—reg. 0 -? into Word Count bits 16—32), and the second one loads the lower 16 bits(A - reg. 0—15 into Word Count bits 0—15).
+
+					// After a transfer, the upper/lower Word Count control bit (flip—flop) is reset.A Read Status instruction(DEV.NO. +4) or a Device Clear will also reset this bit.
+					// The controller is able to transfer a whole cylinder, or up to 16M words(24 bits), with a hardware increment of the head and sector addresses.
+
+					// For the 75 Mb disk, the maximum word count is 132000(45k); starting with the head and cylinder address equal to 0.
+					// The Word Count is set to an integer multiple of the number of words in a sector when device operation is M0—M3.
+
+					
+
+					dev->eccControl = gA;
+					dev->wcFlipFlop = true;
+
+					// Bit 0 - Reset ECC
+					if ((dev->eccControl & 1 << 0) != 0) dev->eccCount = 0;
+
+
+					// Bit 1 - Force Parity Error
+					if ((dev->eccControl & 1 << 1) != 0)
+					{
+						// Used for maintenance purposes only. (FILE-SYS-INV uses it!!)
+						// This bit will force ECC parity error to be set.
+
+						// TODO: WHat does this mean	
+						dev->hardwareError = true; // Set Bit 7 for the Status Register => Disk fault, missing read clocks, missing servoclocks, ECC parity error.
+					}
+
+					// Bit 2 - Long
+					if ((dev->eccControl & 1 << 2) != 0)
+					{
+						// Used for maintenance purposes only.
+
+						// When a sector is read or written, the data field of the sector is extended by 64 bits (The length of the ECC pattern plus “End of Record" byte).
+						// The data and the extra bits are read into or written from the memory of the CPU. This function is used to diagnose the
+						// operation of the ECC circuits, and can be used with the following Device operations: M0, M1, M2, M3. This bit is "echoed" in ECR bit 14.
+
+						// TODO: WHat does this mean	
+
+					}
+
+					// Bit 3-5 - Format A-D. Used when formatting the drive.
+				}
+				else
+				{
+					// The first loads the upper 8 bits
+					dev->eccControlHI = (ushort)(gA & 0xFF);
+				}
+			}
+			else
+			{
+
+				if ((dev->wcFlipFlop) || (dev->deviceType == 0)) // old
+				{
+					dev->wordCounter = gA;
+				}
+				else
+				{
+					dev->wordCounterHI = (ushort)(gA & 0xFF);
+					dev->wcFlipFlop = true;
+				}
+			}
 			break;
 		break;
 	}
@@ -2062,7 +2366,8 @@ void bigdisk_IO(ushort ioadd)
 		CurrentCPURunMode = SHUTDOWN;
 	}
 
-	if (debug)
+	if (false)
+	//if (debug)
 	{
 		// Log that we Read value, but dont log repeting values (ie typically loop on reading status reg)
 		if ((reladd & 0x01) ==0)
@@ -2075,10 +2380,8 @@ void bigdisk_IO(ushort ioadd)
 		 
 
 	if (trigger_bigdisk_irq)
-	{
-		if (debug) fprintf(debugfile,"BIGDISK: Triggering  IRQ...");
-		bigdisk_interrupt(dev);
-		if (debug) fprintf(debugfile,"Returned\n");
+	{		
+		bigdisk_interrupt(dev);		
 	}
 		
 
@@ -2154,19 +2457,21 @@ void ExecuteBigDiskGO(struct bigdisk_data *dev)
 
 	if (debug) fprintf(debugfile,"[CoreAddress %04X | %04X [%d] on drive %d. WC %d CHS [%d %d %d] => LBA [%08lX] => Position %ld\n", dev->coreAddress, dev->coreAddressHiBits,  dev->deviceOperation, dev->selectedUnit, dev->wordCounter, cylinder, head, sector, lba,position);
 	if (debug) fflush(debugfile);
-			
+
 
 	switch (dev->deviceOperation)
 	{
 		case 0: // DeviceOperation.ReadTransfer
-			//Log($"Starting READ TRANSFER data on drive position {position}, WordCount {wordCounter}");
+			if (debug) fprintf(debugfile,"Starting READ TRANSFER data on drive position %ld, WordCount %d\n", position, dev->wordCounter);
+
+			//Log($"
 			while (dev->wordCounter > 0)
 			{
 				readcnt = fread(&read_word,1,2,hdd_file);		
 
 				if (readcnt <=0)
 				{
-					
+					if (debug) fprintf(debugfile,"FAILED READ IN ReadTransfer, readcnt = %d\n", readcnt);
 					dev->hardwareError=1;
 					dev->deviceActive=0;
 					
@@ -2177,15 +2482,24 @@ void ExecuteBigDiskGO(struct bigdisk_data *dev)
 				}
 				else
 				{	
+
+
 					// Swap HI/LO to make endian correct (ND is BIG ENDIAN)
 					endian_word=(read_word & 0xff00)>>8;
 					endian_word= endian_word | ((read_word & 0x00ff) << 8);		
 
+					
+
 					// Write to memory				
 					//if (debug) fprintf(debugfile,"X: 0x%X => [%d, %d]  \n", endian_word, dev->coreAddress,dev->addressHiBits	);
 					
-					ulong fulladdress = dev->coreAddress | dev->coreAddressHiBits<<16;
-					PhysMemWrite(endian_word, fulladdress);
+					ulong eff_addr = dev->coreAddress | dev->coreAddressHiBits<<16;
+					//if (debug) fprintf(debugfile,"WC %d - READ %04X => ENDIAN %04X ===> [%08lX]\n", (short)dev->wordCounter, (short)read_word, endian_word, eff_addr);
+					//if (debug) fflush(debugfile);
+
+					
+					PhysMemWrite(endian_word, eff_addr);
+					//MemoryWrite(endian_word,eff_addr,false,2);
 					dev->coreAddress++;
 					dev->wordCounter--;
 				}						
@@ -2209,12 +2523,13 @@ void ExecuteBigDiskGO(struct bigdisk_data *dev)
 			while (dev->wordCounter > 0)
 			{
 
-				ulong fulladdress = dev->coreAddress | dev->coreAddressHiBits<<16;
-				endian_word = PhysMemRead(fulladdress);
+				ulong eff_addr = dev->coreAddress | dev->coreAddressHiBits<<16;
+				endian_word = PhysMemRead(eff_addr);
+				//endian_word = MemoryRead(eff_addr,false);
 				
 				readcnt = fwrite(&endian_word,1,2,hdd_file);							
 				if (readcnt <=0)
-				{
+				{					
 					dev->hardwareError=1;
 					dev->deviceActive=0;
 					
@@ -2252,18 +2567,21 @@ void ExecuteBigDiskGO(struct bigdisk_data *dev)
 			queue_int = true;
 			break;
 		case 6: //DeviceOperation.SeekCompleteSearch:
+			if (debug) fprintf(debugfile,"Starting SeekCompleteSearch on drive position %ld\n",position);
 			dev->onCylinder = true;
 			dev->seekError = false;
 			dev->seekCompleteBits = 1 << dev->selectedUnit;
 			queue_int = true;
 			break;
 		case 7: //DeviceOperation.ReturnToZeroSeek:
+			if (debug) fprintf(debugfile,"Starting ReturnToZeroSeek on drive position %ld\n",position);
 			dev->seekError = false;
 			dev->onCylinder = true;
 			dev->seekCompleteBits |= 1 << dev->selectedUnit;			
 			queue_int = true;
 			break;
 		case 8: //DeviceOperation.RunECCOperation:
+			if (debug) fprintf(debugfile,"Starting RunECCOperation on drive position %ld\n",position);	
 			break;
 		default:
 			//error =-1;
@@ -2277,9 +2595,10 @@ void ExecuteBigDiskGO(struct bigdisk_data *dev)
 	}	
 
 	if (queue_int)
-	{
-		tick_bigdisk_end = 10;  // In 10 CPU ticks trigger bigdisk_command_end
-		tick_bigdisk_end = error; // and this is the saved error code
+	{		
+ 		tick_bigdisk_end = 10;  // In 10 CPU ticks trigger bigdisk_command_end
+		tick_bigdisk_error= error; // and this is the saved error code
+
 	}
 }
 
@@ -2298,14 +2617,12 @@ void bigdisk_command_end(int error)
 void bigdisk_interrupt(struct bigdisk_data *dev)
 {
 	int s;
-	int ident = 017; //Bigdisk uses 017 for address 1540-1547
+	int ident = 0xF; //017; //Bigdisk uses 017 for address 1540-1547
 	
-	if (debug) fprintf(debugfile,"BIGDISK:Interrupt 11\n");
-
 	if(CurrentCPURunMode != STOP) 
 	{
 		while ((s = sem_wait(&sem_int)) == -1 && errno == EINTR) /* wait for interrupt lock to be free */
-				continue;       /* Restart if interrupted by handler */
+					continue;       /* Restart if interrupted by handler */
 		
 		gPID |= 0x800; /* Bit 11 */				
 		// interrupt(11,0); <= hangs
@@ -2315,6 +2632,7 @@ void bigdisk_interrupt(struct bigdisk_data *dev)
 		{ 
 			/* release interrupt lock */
 			if (debug) fprintf(debugfile,"ERROR!!! sem_post failure DOMCL\n");
+			if (debug) fflush(debugfile);
 			CurrentCPURunMode = SHUTDOWN;
 		}
 		checkPK();
@@ -2325,6 +2643,7 @@ void bigdisk_interrupt(struct bigdisk_data *dev)
 // need to use this to get the HAWK registers to change after N number of ticks
 void TickIO()
 {
+	
 	if (tick_hawk_end>0)
 	{
 		tick_hawk_end--;
@@ -2334,12 +2653,14 @@ void TickIO()
 			tick_hawk_error = 0;
 		}
 	}
-
+	
 	if (tick_bigdisk_end>0)
 	{
+		
 		tick_bigdisk_end--;
+
 		if (tick_bigdisk_end<=0)
-		{
+		{			
 			bigdisk_command_end(tick_bigdisk_error);
 			tick_bigdisk_error = 0;
 		}

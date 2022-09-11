@@ -2729,7 +2729,7 @@ void DoIDENT(char priolevel) {
 		if (priolevel!=13) // Dont trace RTC, its just to much
 			if (trace) trace_step(1,"A<=%06o",id);
 	} else {
-		if (debug) fprintf(debugfile,"DoIDENT IOX Error\n");
+		if (debug) fprintf(debugfile,"DoIDENT IOX Error lvl=%d\n", priolevel);
 		interrupt(14,1<<7); /* IOX Error if no IDENT code found */
 		if (trace) trace_pre(2,"PID",gPID,"PIE",gPIE);
 	}
@@ -3349,8 +3349,10 @@ void PhysMemWrite(ushort value, ulong addr){
 		PT_Write(value,(ushort)addr,2); /* 2 = word write */
 		return;
 	}
-	addr &= (ND_Memsize); /* Mask it to the memory size we have to prevent coredumps :) */
-	p_phy_addr = &VolatileMemory.n_Array[addr];
+	// 11.09.22: Removed this mask and now read and wrtie physical seems to work
+	//addr &= (ND_Memsize); /* Mask it to the memory size we have to prevent coredumps :) */
+
+	p_phy_addr = &VolatileMemory.n_Array[addr];	
 	*p_phy_addr = value;
 }
 
@@ -3363,7 +3365,10 @@ ushort PhysMemRead(ulong addr){
 		res = PT_Read((ushort)addr);
 		return(res); /* PT data */
 	}
-	addr &= (ND_Memsize); /* Mask it to the memory size we have to prevent coredumps :) */
+	
+	// 11.09.22: Removed this mask and now read and wrtie physical seems to work
+	//addr &= (ND_Memsize); /* Mask it to the memory size we have to prevent coredumps :) */
+
 	return VolatileMemory.n_Array[addr];
 }
 
