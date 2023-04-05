@@ -2535,6 +2535,10 @@ bool IsSkip(ushort instr) {
 		trace_step(1,(char *)trace_temp_str,0);
 	}
 
+	// if <dr>=0, a no-operation occurs
+	if (dr == 0) return false;
+
+
 	/* Ok, lets set flags */
 	z = (0 == (desti - source)) ? 1 : 0;
 	sgr = sd - ss;
