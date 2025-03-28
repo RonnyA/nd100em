@@ -20,6 +20,9 @@
  * distribution in the file COPYING); if not, see <http://www.gnu.org/licenses/>.
  */
 
+#ifndef ND_100_LIB_H
+#define ND_100_LIB_H
+
 extern int trace;
 extern int DISASM;
 extern ushort PANEL_PROCESSOR;
@@ -38,16 +41,10 @@ extern _CPUTYPE_	CurrentCPUType;
 extern struct CpuRegs *gReg;
 extern union NewPT *gPT;
 extern struct MemTraceList *gMemTrace;
-extern struct IdentChain *gIdentChain;
+
 
 extern double instr_counter;
 
-extern pthread_mutex_t mutrun;
-extern pthread_cond_t condrun;
-extern pthread_mutex_t mutmopc;
-extern pthread_cond_t condmopc;
-
-struct ThreadChain *gThreadChain;
 
 int emulatemon = 1;
 
@@ -70,25 +67,11 @@ extern bool FDD_IMAGE_RO;
 extern char *HAWK_IMAGE_NAME;
 extern char *BIGDISK_IMAGE_NAME;
 
-/* semaphore to release signal thread when terminating */
-sem_t sem_sigthr;
-extern sem_t sem_rtc_tick;
-extern sem_t sem_mopc;
-extern sem_t sem_run;
-
 struct termios savetty;
 
-extern void rtc_20(void);
-extern void cpu_thread();
-extern void mopc_thread(void);
-extern void panel_thread(void);
-extern void console_socket_thread(void);
-extern void console_stdio_thread(void);
-extern void floppy_thread(void);
-extern void floppy_init(void);
 
-extern void hawk_thread(void);
-extern void hawk_init(void);
+
+
 
 extern void MemoryWrite(ushort value, ushort addr, bool UseAPT, unsigned char byte_select);
 extern ushort MemoryRead(ushort addr, bool UseAPT);
@@ -120,3 +103,4 @@ void stop_threads(void);
 void setup_cpu(void);
 void program_load(void);
 
+#endif // ND_100_LIB_H

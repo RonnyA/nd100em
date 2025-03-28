@@ -20,8 +20,6 @@
  * distribution in the file COPYING); if not, see <http://www.gnu.org/licenses/>.
  */
 
-sem_t sem_rtc_tick;
-sem_t sem_rtc;
 
 struct rtc_data {
         bool irq_en; /* enable irq when pulse occurs */
@@ -31,9 +29,7 @@ struct rtc_data {
 
 struct rtc_data *sys_rtc = NULL;
 
-extern sem_t sem_int;
-extern sem_t sem_mopc;
-extern sem_t sem_pap;
+
 extern struct display_panel *gPAP;
 
 extern struct CpuRegs *gReg;

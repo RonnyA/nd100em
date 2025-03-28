@@ -20,6 +20,11 @@
  * distribution in the file COPYING); if not, see <http://www.gnu.org/licenses/>.
  */
 
+#ifndef ND100EM_H
+#define ND100EM_H
+
+#include <sys/resource.h>
+
 extern int trace;
 extern int debug;
 extern int DAEMON;
@@ -28,18 +33,6 @@ extern ushort PANEL_PROCESSOR;
 
 extern double instr_counter;
 extern struct ThreadChain *gThreadChain;
-
-extern sem_t sem_int;
-extern sem_t sem_cons;
-extern sem_t sem_sigthr;
-extern sem_t sem_rtc_tick;
-extern sem_t sem_rtc;
-extern sem_t sem_io;
-extern sem_t sem_mopc;
-extern sem_t sem_run;
-extern sem_t sem_floppy;
-extern sem_t sem_hawk;
-extern sem_t sem_pap;
 
 float usertime,systemtime,totaltime;
 struct rusage *used;
@@ -70,3 +63,5 @@ extern void setup_pap();
 
 
 int main(int argc, char *argv[]);
+
+#endif // ND100EM_H

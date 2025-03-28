@@ -1,3 +1,8 @@
+#ifndef CPU_H
+#define CPU_H
+
+#include "nd100.h"
+
 /*
  * nd100em - ND100 Virtual Machine
  *
@@ -206,7 +211,7 @@ void DoTRA(ushort instr);
 void DoTRR(ushort instr);
 void DoWAIT(ushort instr);
 void DoEXR(ushort instr);
-void DoIDENT(char priolevel);
+void DoIDENT(ushort priolevel);
 void DoMOVB(ushort instr);
 void DoMOVBF(ushort instr);
 void or_A_mem (char XIB, char displacement);
@@ -241,6 +246,7 @@ void AddIdentChain(char lvl, ushort identnum, int callerid);
 void RemIdentChain(struct IdentChain * elem);
 void checkPK (void);
 void interrupt(ushort lvl,ushort sub);
+void device_interrupt(ushort interruptBits);
 void illegal_instr(ushort operand);
 void unimplemented_instr(ushort operand);
 void prefetch();
@@ -277,7 +283,8 @@ extern void disasm_setlbl(ushort addr);
 extern void disasm_userel(ushort addr, ushort where);
 extern void disasm_set_isdata(ushort addr);
 
-extern sem_t sem_pap;
 extern struct display_panel *gPAP;
 
 extern void TickIO();
+
+#endif // CPU_H

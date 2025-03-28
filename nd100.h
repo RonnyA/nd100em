@@ -21,6 +21,11 @@
  * distribution in the file COPYING); if not, see <http://www.gnu.org/licenses/>.
  */
 
+#ifndef ND100_H
+#define ND100_H
+
+#include <stdbool.h>
+
 /* A complete listing of registers in a program level regbank including the 8 scratch regs. */
 #define _STS 0
 #define _D 1
@@ -210,31 +215,8 @@ struct MemTraceList {
 
 typedef enum {IGNORE, CANCEL, JOIN} _THREAD_KILL_MODE_;
 
-/*
- * Structure to keep track of all running threads in the emulator, and how they should be terminated.
- * A doubly linked one so we can unchain an element in the middle quite easily as well as traverse it back and forth.
- */
-struct ThreadChain {
-	_THREAD_KILL_MODE_ tk;	/* how this thread should be terminated by shutdown routine */
-        pthread_t thread;	/* thread id (normally unsigned long int)*/
-        pthread_attr_t tattr;	/* thread attributes */
-	struct ThreadChain *prev, *next; /* the links */
-};
 
-/*
- * Structure for identifying interrupting device. To simplify the detection of which interrupting
- * device caused it, let us have a linked list of all pending interrupts in the system. A doubly linked
- * one so we can unchain an element in the middle quite easily as well as traverse it back and forth.
- * Use one list for now, but we can both split it into several as well as keep it. Also have a for now
- * unused variable called slotnum, which can be used later if we want to mimic ND100 ordering behaviour closer.
- */
-struct IdentChain {
-	char level; /* interrupt level this is. Might not be needed, if we use one list per level */
-	ushort slotnum; /* which slot in the rack the device sits at. unused for now. */
-	ushort identcode; /* which interrupting device it is. */
-	int callerid;	/* We create this as a unique id, as there are identids that are same for several devices? */
-	struct IdentChain *prev, *next; /* the links */
-};
+
 
 typedef enum {SHUTDOWN, STOP, SEMIRUN, RUN} _RUNMODE_;
 
@@ -300,41 +282,7 @@ typedef enum {ND1, ND4, ND10, ND100, ND100CE, ND100CX, ND110, ND110CE, ND110CX, 
 
 #define UNDEF_INSTR ((ushort)0142500)
 
-/*
- */
-struct control_panel {
-	int lock_key;
-//	bool stop_button;
-//	bool load_button;
-//	bool opcom_button;
-//	bool mcl_button;
 
-	bool power_lamp;
-	bool run_lamp;
-	bool opcom_lamp;
-};
 
-struct display_panel {
-//	bool opcom_button;
-
-	bool trr_panc;	/* TRR has been issued, process command */
-	bool sec_tick;	/* Seconds tick from rtc, update counters */
-
-	ushort pap_curr_command;
-
-	char func_display[40];	/* Max 40 chars in display buffer */
-	ushort fdisp_cntr;	/* pointer to where we are */
-
-	ushort seconds;		/* 16 bit second counter for realtime clock, ticks day counter every 12h */
-	ushort days;		/* 16 bit day counter for realtime clock */
-				/* So seconds should wrap at 3600x12 = 43200, and day possibly lowest bit is am/pm */
-
-	bool power_lamp;
-	bool run_lamp;
-	bool opcom_lamp;
-	int function_util;
-	int function_hit;
-	int function_ring;
-	int function_mode;
-};
+#endif // ND100_H
 

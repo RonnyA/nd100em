@@ -37,6 +37,7 @@
 #include <math.h>
 #include <libconfig.h>
 #include "nd100.h"
+#include "io_new.h"
 #include "nd100lib.h"
 
 /*
@@ -220,50 +221,18 @@ void setcbreak (void) {/* set console input to raw mode. */
 	tcgetattr(0, &tty);
 	tty.c_lflag &= ~(ECHO|ECHONL|ICANON|IEXTEN);
 	tty.c_cc[VTIME] = (cc_t)0;     /* inter-character timer unused */
-	tty.c_cc[VMIN] = (cc_t)0;	/* Dont wait for chars */
+	tty.c_cc[VMIN] = (cc_t)0;	/* Dont wait for chars - non-blocking read */
 	tcsetattr(0, TCSADRAIN, &tty);
+
+	/* After this is set:
+	   - Use read() or getchar_unlocked() for non-blocking reads
+	   - read() will return -1 with errno=EAGAIN if no data
+	   - getchar_unlocked() will return EOF if no data
+	   - Both functions return immediately without waiting
+	*/
 }
 
-struct ThreadChain *AddThreadChain() {
-	if (debug) fprintf(debugfile,"AddThreadChain called...\n");
-	if (debug) fflush(debugfile);
 
-	struct ThreadChain * curr, * new;
-	new=calloc(1,sizeof(struct ThreadChain));
-	curr=gThreadChain;
-	if(curr !=0 ) {
-		while (curr->next != 0)
-			curr=curr->next;
-	} else {
-		gThreadChain=new;
-		return(new);
-	}
-	curr->next=new;
-	new->prev=curr;
-	return(new);
-}
-
-void RemThreadChain(struct ThreadChain * elem){
-	if (debug) fprintf(debugfile,"RemThreadChain called...\n");
-	if (debug) fflush(debugfile);
-
-	struct ThreadChain * p, * n;
-	n=elem->next;
-	p=elem->prev;
-	/* Unlink this element */
-	if(n && p) {
-		p->next=n;
-		n->prev=p;
-	} else if (n){
-		n->prev=0;
-		gThreadChain=n;
-	} else if (p) {
-		p->next=0;
-	} else {
-		gThreadChain=0;
-	}
-	free(elem);
-}
 
 /*
  * New config model used libconfig to load configuration file.
@@ -430,27 +399,10 @@ void shutdown(int signum){
 	/* This works for now. All threads should terminate if this variable is set */
 	CurrentCPURunMode = SHUTDOWN;
 
-	if (sem_post(&sem_run) == -1) { /* release rum lock */
-		if (debug) fprintf(debugfile,"ERROR!!! sem_post failure shutdown\n");
-	}
-
-	if (sem_post(&sem_mopc) == -1) { /* release mopc lock */
-		if (debug) fprintf(debugfile,"ERROR!!! sem_post failure shutdown\n");
-	}
-
-	if (sem_post(&sem_sigthr) == -1) { /* release signal thread lock */
-		if (debug) fprintf(debugfile,"ERROR!!! sem_post failure shutdown\n");
-	}
-
 	if (debug) fprintf(debugfile,"(####) shutdown routine done\n");
 	if (debug) fflush(debugfile);
 }
 
-void rtc_handler (int signum){
-	if (sem_post(&sem_rtc_tick) == -1) { /* release rtc tick  lock */
-		if (debug) fprintf(debugfile,"ERROR!!! sem_post failure rtc_handler\n");
-	}
-}
 
 void blocksignals() {
 	static sigset_t   new_set;
@@ -468,17 +420,18 @@ void blocksignals() {
 	sigaddset (&new_set, SIGALRM); /* ignore timer for process.. this one we will install handler for later */
 	sigaddset (&new_set, SIGINT); /* kill signal we will catch in handles */
 	sigaddset (&new_set, SIGHUP); /* see above */
-	sigaddset (&new_set, SIGTERM); /* see above */
-	pthread_sigmask (SIG_BLOCK, &new_set, &old_set);
+	sigaddset (&new_set, SIGTERM); /* see above */	
 }
 
 void setsignalhandlers() {
-	static sigset_t   new_set;
-	static sigset_t   old_set;
-	static struct sigaction act;
-	static struct sigaction act_alrm;
+	//static sigset_t   new_set;
+	//static sigset_t   old_set;
+
+	//static struct sigaction act;
+	//static struct sigaction act_alrm;
 
 	/* set up handler for SIGINT, SIGHUP, SIGTERM */
+	/*
 	act.sa_handler = &shutdown;
 	sigemptyset (&act.sa_mask);
 	sigaction (SIGINT, &act, NULL);
@@ -489,25 +442,21 @@ void setsignalhandlers() {
 	sigaddset (&new_set, SIGINT);
 	sigaddset (&new_set, SIGHUP);
 	sigaddset (&new_set, SIGTERM);
-	pthread_sigmask (SIG_UNBLOCK, &new_set, &old_set);
+	*/
 
 	/* set up handler for SIGALARM */
+	/*
 	act_alrm.sa_handler = &rtc_handler;
 	sigemptyset (&act_alrm.sa_mask);
 	sigaction (SIGALRM, &act_alrm, NULL);
 	sigemptyset (&new_set);
 	sigemptyset (&old_set);
 	sigaddset (&new_set, SIGALRM);
-	pthread_sigmask (SIG_UNBLOCK, &new_set, &old_set);
+	
+	*/
 	return;
 }
 
-void signal_thread(){
-	int s;
-	setsignalhandlers();
-	while ((s = sem_wait(&sem_sigthr)) == -1 && errno == EINTR) /* wait for signal thread lock to be free */
-		continue; /* Restart if interrupted by handler */
-}
 
 void daemonize() {
 	pid_t pid, sid;
@@ -541,23 +490,10 @@ void daemonize() {
 	CONSOLE_IS_SOCKET = 1;
 }
 
-pthread_t add_thread(void *funcpointer, bool is_jointype){
-	struct ThreadChain *tc_elem;
 
-	tc_elem=AddThreadChain();
-	pthread_attr_init(&tc_elem->tattr);
-	if (is_jointype){
-		pthread_attr_setdetachstate(&tc_elem->tattr,PTHREAD_CREATE_JOINABLE);
-		tc_elem->tk = JOIN;
-	} else {
-		pthread_attr_setdetachstate(&tc_elem->tattr,PTHREAD_CREATE_DETACHED);
-		tc_elem->tk = CANCEL;
-	}
-	pthread_create(&tc_elem->thread, &tc_elem->tattr, funcpointer, NULL );
-	return(tc_elem->thread);
-}
 
 void start_threads(){
+#if _0_	
 	pthread_t thread_id;
 	/* CPU Thread */
 	thread_id = add_thread(&cpu_thread,1);
@@ -604,31 +540,10 @@ void start_threads(){
 
 	if (debug) fprintf(debugfile,"Added thread id: %d as console_socket/stdio_thread\n",(int)thread_id);
 	if (debug) fflush(debugfile);
+#endif	
 }
 
-void stop_threads(){
-	if (debug) fprintf(debugfile,"REMOVE thread id: %d\n",(int)gThreadChain->thread);
-	if (debug) fflush(debugfile);
-	RemThreadChain(gThreadChain);
-	while (gThreadChain) {
-		if (debug) fprintf(debugfile,"IN the kill while for threads with thread id: %d\n",(int)gThreadChain->thread);
-		if (debug) fflush(debugfile);
 
-		switch(gThreadChain->tk) {
-		case (JOIN):
-			pthread_join(gThreadChain->thread,NULL);
-			RemThreadChain(gThreadChain);
-			break;
-		case (CANCEL):
-			pthread_cancel(gThreadChain->thread);
-			RemThreadChain(gThreadChain);
-			break;
-		default:	/* IGNORE */
-			RemThreadChain(gThreadChain);
-			break;
-		}
-	}
-}
 
 void setup_cpu(){
 	/* initialize an empty register set */
@@ -636,19 +551,11 @@ void setup_cpu(){
 	/* initialize an empty pagetable */
 	gPT=calloc(1,sizeof(union NewPT));
 	/* Initialize IO handler functions */
-	Setup_IO_Handlers();
-	/* initialize floppy drive data structures */
-	floppy_init();
-
-	/* initialize HAWK drive data structures */
-	hawk_init();
+	IO_Init();
 
 	setbit(_STS,_O,1);
 	setbit_STS_MSB(_N100,1);
 	gCSR = 1<<2;	/* this bit sets the cache as not available */
-
-	/* Initialise Ident List  pointer to null */
-	gIdentChain = 0;
 
 	/* Set cpu as running for now. Probably should depend on settings */
 	CurrentCPURunMode = RUN;

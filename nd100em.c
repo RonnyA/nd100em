@@ -54,29 +54,6 @@ int main(int argc, char *argv[]) {
 	if (trace) trace_open();
 	if (DISASM) disasm_init();
 
-	if (sem_init(&sem_int, 0, 1) == -1)
-		exit(1);
-	if (sem_init(&sem_cons, 0, 0) == -1) /* console locked, so thread waits for output at start */
-		exit(1);
-	if (sem_init(&sem_sigthr, 0, 0) == -1) /* signal thread locked, so it doesn't finish prematurely */
-		exit(1);
-	if (sem_init(&sem_rtc_tick, 0, 1) == -1) /* start with no lock. */
-		exit(1);
-	if (sem_init(&sem_rtc, 0, 1) == -1) /* start with no lock. */
-		exit(1);
-	if (sem_init(&sem_io, 0, 1) == -1) /* start with no lock. */
-		exit(1);
-	if (sem_init(&sem_floppy, 0, 1) == -1) /* start with lock. */
-		exit(1);
-	if (sem_init(&sem_hawk, 0, 1) == -1) /* start with lock. */
-		exit(1);
-	if (sem_init(&sem_mopc, 0, 1) == -1) /* start with lock. */
-		exit(1);
-	if (sem_init(&sem_run, 0, 0) == -1) /* start with no lock. */
-		exit(1);
-	if (PANEL_PROCESSOR)
-		if (sem_init(&sem_pap, 0, 1) == -1) /* start with no lock. */
-			exit(1);
 
 	setup_cpu();
 	program_load();
@@ -88,10 +65,8 @@ int main(int argc, char *argv[]) {
 	setcbreak ();
 	setvbuf(stdout, NULL, _IONBF, 0);
 
-	/* start the real machine as multiple threads */
-	start_threads();
-	pthread_join(gThreadChain->thread,NULL); /* TODO:: Maybe do this otherwise, we exploit that we "know" cputhread is first and will be running here */
-	stop_threads();
+	//start_threads();
+	cpu_thread();
 
 	getrusage(RUSAGE_SELF, used);	/* Read how much resources we used */
 

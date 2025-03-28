@@ -27,8 +27,7 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <errno.h>
-#include <pthread.h>
-#include <semaphore.h>
+
 #include <signal.h>
 #include <unistd.h>
 #include <sys/time.h>
@@ -38,23 +37,13 @@
 #include <string.h>
 #include "nd100.h"
 #include "cpu.h"
-
+#include "iox/panel.h"
 
 #define BUFSTRSIZE 24
 
 struct termios savetty;
 
-/* Interrupt thread synchronization */
-sem_t sem_int;
 
-/* mopc synchronization */
-sem_t sem_mopc;
-
-/* running cpu synchronization */
-sem_t sem_run;
-
-/* stopping cpu synchronization */
-sem_t sem_stop;
 
 /* Performance stuff */
 
@@ -2019,10 +2008,6 @@ void DoMCL(ushort instr) {
 		if (trace) trace_pre(2,"PID",gPID,"A",gA);
 
 		gPID &= ~gA;
-		if (sem_post(&sem_int) == -1) { /* release interrupt lock */
-			if (debug) fprintf(debugfile,"ERROR!!! sem_post failure DOMCL\n");
-			CurrentCPURunMode = SHUTDOWN;
-		}
 
 		checkPK();
 		if (trace) trace_step(1,"PID {AND}{NOT} A",0);
@@ -2031,13 +2016,7 @@ void DoMCL(ushort instr) {
 	case 07:
 		/* This affects interrupt, so do locking and checking. */
 		if (trace) trace_pre(2,"PIE",gPIE,"A",gA);
-		while ((s = sem_wait(&sem_int)) == -1 && errno == EINTR) /* wait for interrupt lock to be free */
-			continue; /* Restart if interrupted by handler */
 		gPIE &= ~gA;
-		if (sem_post(&sem_int) == -1) { /* release interrupt lock */
-			if (debug) fprintf(debugfile,"ERROR!!! sem_post failure DOMCL\n");
-			CurrentCPURunMode = SHUTDOWN;
-		}
 		checkPK();
 		if (trace) trace_step(1,"PIE {AND}{NOT} A",0);
 		if (trace) trace_post(1,"PIE",gPIE);
@@ -2069,13 +2048,8 @@ void DoMST(ushort instr) {
 	case 06:
 		/* This affects interrupt, so do locking and checking. */
 		if (trace) trace_pre(2,"PID",gPID,"A",gA);
-		while ((s = sem_wait(&sem_int)) == -1 && errno == EINTR) /* wait for interrupt lock to be free */
-			continue; /* Restart if interrupted by handler */
 		gPID |= gA;
-		if (sem_post(&sem_int) == -1) { /* release interrupt lock */
-			if (debug) fprintf(debugfile,"ERROR!!! sem_post failure DOMCL\n");
-			CurrentCPURunMode = SHUTDOWN;
-		}
+	
 		checkPK();
 		if (trace) trace_step(1,"PID {AND}{NOT} A",0);
 		if (trace) trace_post(1,"PID",gPID);
@@ -2083,13 +2057,8 @@ void DoMST(ushort instr) {
 	case 07:
 		/* This affects interrupt, so do locking and checking. */
 		if (trace) trace_pre(2,"PIE",gPIE,"A",gA);
-		while ((s = sem_wait(&sem_int)) == -1 && errno == EINTR) /* wait for interrupt lock to be free */
-			continue; /* Restart if interrupted by handler */
 		gPIE |= gA;
-		if (sem_post(&sem_int) == -1) { /* release interrupt lock */
-			if (debug) fprintf(debugfile,"ERROR!!! sem_post failure DOMCL\n");
-			CurrentCPURunMode = SHUTDOWN;
-		}
+	
 		checkPK();
 		if (trace) trace_step(1,"PIE {AND}{NOT} A",0);
 		if (trace) trace_post(1,"PIE",gPIE);
@@ -2172,14 +2141,8 @@ void DoTRA(ushort instr) {
 		break;
 	case 03: /* TRA PGS */
 		/* TODO:: Check that this also is supposed to clear the PGS as it "unlocks" it */
-		while ((s = sem_wait(&sem_int)) == -1 && errno == EINTR) /* wait for interrupt lock to be free */
-			continue; /* Restart if interrupted by handler */
 		gA = gPGS;
 		gPGS=0;
-		if (sem_post(&sem_int) == -1) { /* release interrupt lock */
-			if (debug) fprintf(debugfile,"ERROR!!! sem_post failure DOMCL\n");
-			CurrentCPURunMode = SHUTDOWN;
-		}
 		if (trace) trace_step(1,"A<=PGS",0);
 		break;
 	case 04: /* TRA PVL */
@@ -2191,8 +2154,6 @@ void DoTRA(ushort instr) {
 	case 05: /* TRA IIC */
 		/* Manuals says(2.2.4.3) that this should be a number equal to the highest bit set in (IID & IIE) - Roger */
 		/* Only bit 1-10 is used, so we only return a value between 1 and 10  or else  zero */
-		while ((s = sem_wait(&sem_int)) == -1 && errno == EINTR) /* wait for interrupt lock to be free */
-			continue; /* Restart if interrupted by handler */
 		gIIC = 0;
 		temp=gIID & gIIE;
 		for (i=1;i<16;i++) {
@@ -2201,10 +2162,6 @@ void DoTRA(ushort instr) {
 		gA = gIIC;
 		gIID = 0;
 		gReg->mylock_IIC = false;
-		if (sem_post(&sem_int) == -1) { /* release interrupt lock */
-			if (debug) fprintf(debugfile,"ERROR!!! sem_post failure DOMCL\n");
-			CurrentCPURunMode = SHUTDOWN;
-		}
 		if (trace) trace_step(1,"A<=IIC",0);
 		break;
 	case 06:
@@ -2294,13 +2251,7 @@ void DoWAIT(ushort instr) {
 	} else {
 		gPC++;
 		temp= ~(1<<CurrLEVEL); /* Now we have a 0 in the position we want */
-		while ((s = sem_wait(&sem_int)) == -1 && errno == EINTR) /* wait for interrupt lock to be free */
-			continue; /* Restart if interrupted by handler */
 		gPID &= temp; /* Give up this level */
-		if (sem_post(&sem_int) == -1) { /* release interrupt lock */
-			if (debug) fprintf(debugfile,"ERROR!!! sem_post failure DOMCL\n");
-			CurrentCPURunMode = SHUTDOWN;
-		}
 		checkPK();
 	}
 }
@@ -2322,10 +2273,7 @@ void DoTRR(ushort instr) {
 		if (trace) trace_step(1,"PANC<=A",0);
 		if (PANEL_PROCESSOR) {
 			gPAP->trr_panc = true;
-			if (sem_post(&sem_pap) == -1) { /* kick panel processor */
-				if (debug) fprintf(debugfile,"ERROR!!! sem_post failure TRR PANC\n");
-				CurrentCPURunMode = SHUTDOWN;
-			}
+			 /*TODO:  kick panel processor */
 		}
 		break;
 	case 01:
@@ -2345,37 +2293,17 @@ void DoTRR(ushort instr) {
 		if (trace) trace_step(1,"PCR(%d)<=A",level);
 		break;
 	case 05:
-		while ((s = sem_wait(&sem_int)) == -1 && errno == EINTR) /* wait for interrupt lock to be free */
-			continue; /* Restart if interrupted by handler */
 		gIIE = gA;
-		if (sem_post(&sem_int) == -1) { /* release interrupt lock */
-			if (debug) fprintf(debugfile,"ERROR!!! sem_post failure DOMCL\n");
-			CurrentCPURunMode = SHUTDOWN;
-		}
 		checkPK();
 		if (trace) trace_step(1,"IIE<=A",0);
 		break;
 	case 06:
-		/* This affects interrupt, so do locking and checking. */
-		while ((s = sem_wait(&sem_int)) == -1 && errno == EINTR) /* wait for interrupt lock to be free */
-			continue; /* Restart if interrupted by handler */
 		gPID = gA;
-		if (sem_post(&sem_int) == -1) { /* release interrupt lock */
-			if (debug) fprintf(debugfile,"ERROR!!! sem_post failure DOMCL\n");
-			CurrentCPURunMode = SHUTDOWN;
-		}
 		checkPK();
 		if (trace) trace_step(1,"PID<=A",0);
 		break;
 	case 07:
-		/* This affects interrupt, so do locking and checking. */
-		while ((s = sem_wait(&sem_int)) == -1 && errno == EINTR) /* wait for interrupt lock to be free */
-			continue; /* Restart if interrupted by handler */
 		gPIE = gA;
-		if (sem_post(&sem_int) == -1) { /* release interrupt lock */
-			if (debug) fprintf(debugfile,"ERROR!!! sem_post failure DOMCL\n");
-			CurrentCPURunMode = SHUTDOWN;
-		}
 		checkPK();
 		if (trace) trace_step(1,"PIE<=A",0);
 		break;
@@ -2708,34 +2636,22 @@ ulong ShiftDoubleReg(ulong reg, ushort instr) {
  * DoIDENT
  * Handles IDENT PLxx instructions
  */
-void DoIDENT(char priolevel) {
-	int s;
-	ushort id = 0;
-	struct IdentChain *curr = gIdentChain;
-	while ((s = sem_wait(&sem_int)) == -1 && errno == EINTR) /* wait for interrupt lock to be free */
-		continue; /* Restart if interrupted by handler */
-	while(curr){
-		if (curr->level == priolevel) {
-			id = curr->identcode; /* IDENT code found. Store it */
-			RemIdentChain(curr); /* Remove item since we now have identified it */
-			break;
-		} else
-			curr=curr->next;
-	}
-	if (sem_post(&sem_int) == -1) { /* release interrupt lock */
-		if (debug) fprintf(debugfile,"ERROR!!! sem_post failure DoIDENT\n");
-		CurrentCPURunMode = SHUTDOWN;
-	}
-	if (id) {
-		gA=id; /* Set A reg to ident code */
-		if (trace) trace_step(1,"A<=%06o",id);
+void DoIDENT(ushort priolevel) {
 
+	ushort id = IO_Ident(priolevel);
+	if (id >0)
+	{
+		gA = id;		
 		if (priolevel!=13) // Dont trace RTC, its just to much
+		{
 			if (trace) trace_step(1,"A<=%06o",id);
-	} else {
-		if (debug) fprintf(debugfile,"DoIDENT IOX Error lvl=%d\n", priolevel);
+		}		
+	}
+	else
+	{	
+		if (debug) fprintf(debugfile,"DoIDENT IOX Error lvl=%d\n", priolevel);	
 		interrupt(14,1<<7); /* IOX Error if no IDENT code found */
-		if (trace) trace_pre(2,"PID",gPID,"PIE",gPIE);
+		if (trace) trace_pre(2,"PID",gPID,"PIE",gPIE);		
 	}
 	return;
 }
@@ -3162,8 +3078,6 @@ void mopc_thread(){
 
 	while(CurrentCPURunMode != SHUTDOWN) {
 		/* This should trigger once every rtc/panel interrupt hopefully */
-		while ((s = sem_wait(&sem_mopc)) == -1 && errno == EINTR) /* wait for mopc lock to be free and grab it*/
-			continue; /* Restart if interrupted by handler */
 
 		if (debug) fprintf(debugfile,"(##)mopc tick...\n");
 		if (debug) fflush(debugfile);
@@ -3202,10 +3116,6 @@ void mopc_thread(){
 						gPC=i;
 					}
 					CurrentCPURunMode = RUN;
-					if (sem_post(&sem_run) == -1) { /* release run lock */
-						if (debug) fprintf(debugfile,"ERROR!!! sem_post failure mopc_thread\n");
-						CurrentCPURunMode = SHUTDOWN;
-					}
 				} else {
 					mopc_out('?');
 				}
@@ -3229,8 +3139,6 @@ void checkPK() {
 	ushort lvl;
 	ushort i;
 	gPK=0;
-	while ((s = sem_wait(&sem_int)) == -1 && errno == EINTR) /* wait for interrupt lock to be free */
-		continue; /* Restart if interrupted by handler */
 	i = gPIE & gPID;
 //	if (debug) fprintf(debugfile,"PT DEB CheckPK: gPIE=%06o gPID=%06o i=%06o gPK=%d gPIL=%d\n",gPIE,gPID,i,gPK,gPIL);
 	if (i) { /* Do we have a pending interupt condition */
@@ -3238,10 +3146,6 @@ void checkPK() {
 			gPK = (i & 1<<lvl) ? lvl : gPK; /* Will retain highest bit set as level*/
 //			if (debug) fprintf(debugfile,"PT DEB CheckPK: lvl=%d gPK=%d gPIL=%d\n",lvl,gPK,gPIL);
 		}
-	}
-	if (sem_post(&sem_int) == -1) { /* release interrupt lock */
-		if (debug) fprintf(debugfile,"ERROR!!! sem_post failure DOMCL\n");
-		CurrentCPURunMode = SHUTDOWN;
 	}
 }
 
@@ -3252,19 +3156,31 @@ void checkPK() {
  */
 void interrupt(ushort lvl, ushort sub){
 	int s;
-	while ((s = sem_wait(&sem_int)) == -1 && errno == EINTR) /* wait for interrupt lock to be free */
-		continue; /* Restart if interrupted by handler */
 	if (lvl == 14) {
 		gIID |= sub;
 		if (gIID & gIIE) gPID|= (1<<14);
 	} else {
 		gPID |= (1 << lvl) ;
 	}
-	if (sem_post(&sem_int) == -1) { /* release interrupt lock */
-		if (debug) fprintf(debugfile,"ERROR!!! sem_post failure DOMCL\n");
-		CurrentCPURunMode = SHUTDOWN;
-	}
 	checkPK();
+}
+
+void device_interrupt(ushort interruptBits) {
+    // Only process bits 10-13 and 15 for device interrupts
+    ushort validBits = interruptBits & 0xBC00; // Mask for bits 10-13,15 (0b1111010000000000)
+
+	ushort tmp = gPID;
+
+	//clear gIID bits 10-13,15
+	gPID &= ~validBits;
+
+	// set gIID bits from device(s)
+	gPID |= validBits;
+
+	if (tmp != gPID) {
+		checkPK(); // Check if we need to update PK based on new interrupts    
+	}
+    
 }
 
 /*
@@ -3675,14 +3591,8 @@ void cpurun(){
 		do_op(operand);
 		if (trace & 0x16) trace_regs();
 		if(STS_IONI && (gPK != gPIL)) { /* Time to change runlevel */
-			while ((s = sem_wait(&sem_int)) == -1 && errno == EINTR) /* wait for interrupt lock to be free */
-				continue; /* Restart if interrupted by handler */
 			gPVL = gPIL; /* Save current runlevel */
 			setPIL(gPK); /* Change to new runlevel */
-			if (sem_post(&sem_int) == -1) { /* release interrupt lock */
-				if (debug) fprintf(debugfile,"ERROR!!! sem_post failure DOMCL\n");
-				CurrentCPURunMode = SHUTDOWN;
-			}
 			prefetch(); /* Ok, since we are changing runlevel, we chuck old prefetched instruction and fetch a new one. */
 		}
 		if (trace) trace_post(1,"S",gReg->reg[CurrLEVEL][0]);
@@ -3690,7 +3600,8 @@ void cpurun(){
 		gReg->myreg_IR = gReg->myreg_PFB; /* prefetch of next instruction should have been done while executing current one. */
 
 		// Tick IO devices SYNC (not using thread)
-		TickIO();
+		IO_Tick();
+		
 	}
 }
 
@@ -3705,63 +3616,7 @@ void cpu_thread(){
 
 	while (CurrentCPURunMode != SHUTDOWN) {
 		if(CurrentCPURunMode != STOP) cpurun();
-
-		/* signal that we are now stopped and the routine waiting on us can continue */
-		if(CurrentCPURunMode != SHUTDOWN) {
-			if (sem_post(&sem_stop) == -1) { /* release stop lock */
-				if (debug) fprintf(debugfile,"ERROR!!! sem_post failure cpu_thread\n");
-				CurrentCPURunMode = SHUTDOWN;
-			}
-		}
-
-		/* Wait for run signal */
-		while ((s = sem_wait(&sem_run)) == -1 && errno == EINTR) /* wait for run lock to be free */
-			continue; /* Restart if interrupted by handler */
 	}
-}
-
- void AddIdentChain(char lvl, ushort identnum, int callerid){
-	struct IdentChain *curr, *new;
-	new=calloc(1,sizeof(struct IdentChain));
-	new->identcode = identnum;
-	new->level = lvl;
-	new->callerid = callerid;
-
-	curr=gIdentChain;
-
-	if(curr != NULL ) {
-		while (curr->next != NULL) {
-			if  (curr->callerid == callerid){ /* We have already registered once, so exit */
-				free(new);
-				return;
-			}
-			curr=curr->next;
-		}
-	} else {
-		gIdentChain=new;
-		return;
-	}
-	curr->next=new;
-	new->prev=curr;
-}
-
-void RemIdentChain(struct IdentChain * elem){
-	struct IdentChain *p, *n;
-	n=elem->next;
-	p=elem->prev;
-	/* Unlink this element */
-	if(n && p) {
-		p->next=n;
-		n->prev=p;
-	} else if (n){
-		n->prev=NULL;
-		gIdentChain=n;
-	} else if (p) {
-		p->next=NULL;
-	} else {
-		gIdentChain=NULL;
-	}
-	free(elem);
 }
 
 void AddMemTrace(unsigned int addr, char whom){

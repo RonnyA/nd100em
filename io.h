@@ -1,3 +1,5 @@
+#ifdef _nope_replaced_with_io_new_
+
 /*
  * nd100em - ND100 Virtual Machine
  *
@@ -311,3 +313,5 @@ long ConvertCHStoLBA(struct bigdisk_data *dev,int cylinder, int head, int sector
 
 // Avoding the £$@$@£ Thread Sync
 void TickIO();
+
+#endif

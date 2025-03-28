@@ -1,3 +1,4 @@
+#ifdef _nope_replaced_with_io_new_
 /*
  * nd100em - ND100 Virtual Machine
  *
@@ -2667,3 +2668,5 @@ void TickIO()
 	}
 
 }
+
+#endif
