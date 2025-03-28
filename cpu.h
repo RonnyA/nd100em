@@ -250,7 +250,7 @@ void device_interrupt(ushort interruptBits);
 void illegal_instr(ushort operand);
 void unimplemented_instr(ushort operand);
 void prefetch();
-void cpu_thread();
+void cpu_thread(void);
 void mopc_thread();
 
 void Instruction_Add(int start, int stop, void *funcpointer);
