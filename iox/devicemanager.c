@@ -6,7 +6,9 @@
 #include "devicemanager.h"
 #include "devicePapertape.h"
 #include "deviceFloppyPIO.h"
+#include "deviceFloppyDMA.h"
 #include "deviceRTC.h"
+#include "deviceSMD.h"
 #define INITIAL_DEVICE_CAPACITY 16
 
 // Define the level strings array
@@ -91,7 +93,13 @@ void DeviceManager_AddAllDevices(void)
     DeviceManager_AddDevice(DEVICE_TYPE_PAPER_TAPE, 0);
 
     // Add the FloppyPIO at octal 1560-1567
-    DeviceManager_AddDevice(DEVICE_TYPE_FLOPPY_PIO, 0);
+    //DeviceManager_AddDevice(DEVICE_TYPE_FLOPPY_PIO, 0);
+
+    // Add the FloppyDMA at octal 1560-1567
+    DeviceManager_AddDevice(DEVICE_TYPE_FLOPPY_DMA, 0);
+
+    // Add the SMD at octal 1540-1547
+    DeviceManager_AddDevice(DEVICE_TYPE_DISC_SMD, 0);
 
 }
 
@@ -134,9 +142,22 @@ static Device *CreateDevice(DeviceType type, uint8_t thumbwheel)
             return NULL;
         }
         break;
+
+    case DEVICE_TYPE_DISC_SMD:
+        dev = CreateSMDDevice(thumbwheel);
+        if (!dev)
+        {
+            Log(LOG_ERROR, "Failed to create SMD device\n");
+            return NULL;
+        }
+        break;
     case DEVICE_TYPE_FLOPPY_DMA:
-        // TODO: Implement FloppyDMA device
-        Log(LOG_ERROR, "FloppyDMA device not implemented yet\n");
+        dev = CreateFloppyDMADevice(thumbwheel);
+         if (!dev)
+        {
+            Log(LOG_ERROR, "Failed to create floppy DMA device\n");
+            return NULL;
+        }        
         return NULL;
     default:
         Log(LOG_ERROR, "Unknown device type: %d\n", type);
@@ -198,7 +219,7 @@ uint16_t DeviceManager_Read(uint32_t address)
     }
 
     interrupt(14,1<<7); /* IOX error lvl14 */
-    //Log(LOG_WARNING, "No device found for READ address: %o\n", address);
+    Log(LOG_INFO, "No device found for READ address: %o\n", address);
     return 0;
 }
 
@@ -223,7 +244,7 @@ void DeviceManager_Write(uint32_t address, uint16_t value)
     }
 
     interrupt(14,1<<7); /* IOX error lvl14 */
-    //Log(LOG_WARNING, "No device found for WRITE address: %o\n", address);
+    Log(LOG_INFO, "No device found for WRITE address: %o\n", address);
 }
 
 uint16_t DeviceManager_Ident(uint16_t level)
@@ -242,7 +263,7 @@ uint16_t DeviceManager_Ident(uint16_t level)
     }
 
     interrupt(14,1<<7); /* IOX error lvl14 */
-    //Log(LOG_WARNING, "No device found for IDENT level: %d\n", level);
+    Log(LOG_INFO, "No device found for IDENT level: %d\n", level);
     return 0;
 }
 

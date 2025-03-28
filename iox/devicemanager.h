@@ -20,11 +20,13 @@ extern const char* level_str[];
 
 // Device types
 typedef enum {
-    DEVICE_TYPE_RTC,    
+    DEVICE_TYPE_NONE = 0,
+    DEVICE_TYPE_RTC,
     DEVICE_TYPE_TERMINAL,
     DEVICE_TYPE_PAPER_TAPE,
     DEVICE_TYPE_FLOPPY_PIO,
     DEVICE_TYPE_FLOPPY_DMA,    
+    DEVICE_TYPE_DISC_SMD,
     DEVICE_TYPE_MAX
 } DeviceType;
 

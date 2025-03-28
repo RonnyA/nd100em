@@ -140,7 +140,7 @@ void Device_QueueIODelay(Device *dev, uint16_t ticks, IODelayedCallback cb, int 
 {
     if (!dev || !dev->ioDelays)
         return;
-
+   
     // Resize array if needed
     if (dev->ioDelayCount >= dev->ioDelayCapacity)
     {
@@ -175,7 +175,7 @@ void Device_TickIODelay(Device *dev)
         if (delay->delayTicks <= 0)
         {
             bool triggered = delay->callback(delay->context, delay->parameter);
-            // printf("Callback LVL[%d] PARAM[%d] Returned %d!!\r\n",  delay->level, delay->parameter, triggered);
+            if (delay->level == 11) printf("Callback LVL[%d] PARAM[%d] Returned %d!!\r\n",  delay->level, delay->parameter, triggered);
 
             if (triggered && delay->level > 0)
             {
@@ -234,7 +234,14 @@ void Device_SetInterruptStatus(Device *dev, bool active, uint16_t level)
     }
 }
 
-int32_t Device_ReadWord(Device *dev, FILE *f)
+int32_t Device_IO_Seek(Device *dev, FILE *f, long  offset)
+{
+    if (!f) return -1;
+    return fseek(f, offset, SEEK_SET);
+}
+
+
+int32_t Device_IO_ReadWord(Device *dev, FILE *f)
 {
     if (!f)
         return -1;
@@ -252,7 +259,7 @@ int32_t Device_ReadWord(Device *dev, FILE *f)
     return (hi << 8) | lo;
 }
 
-int32_t Device_WriteWord(Device *dev, FILE *f, uint16_t data)
+int32_t Device_IO_WriteWord(Device *dev, FILE *f, uint16_t data)
 {
     if (!f)
         return -1;
@@ -266,4 +273,17 @@ int32_t Device_WriteWord(Device *dev, FILE *f, uint16_t data)
         return -1;
 
     return 0;
+}
+
+// In cpu.c
+extern uint32_t MemoryReadPhysical(uint32_t addr);
+extern uint32_t MemoryWritePhysical(uint32_t addr, uint32_t value);
+
+
+uint32_t Device_DMAWrite(uint32_t coreAddress, uint16_t data) {    
+    return MemoryWritePhysical(coreAddress, data);
+}
+
+int32_t Device_DMARead(uint32_t coreAddress) {
+    return MemoryReadPhysical(coreAddress);
 }

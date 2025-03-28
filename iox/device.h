@@ -86,8 +86,14 @@ void Device_TickIODelay(Device *dev);
 void Device_ClearInterrupt(Device *dev, uint16_t level);
 void Device_GenerateInterrupt(Device *dev, uint16_t level);
 void Device_SetInterruptStatus(Device *dev, bool active, uint16_t level);
-int32_t Device_ReadWord(Device *dev, FILE *f);
-int32_t Device_WriteWord(Device *dev, FILE *f, uint16_t data);
+int32_t Device_IO_ReadWord(Device *dev, FILE *f);
+int32_t Device_IO_WriteWord(Device *dev, FILE *f, uint16_t data);
+int32_t Device_IO_Seek(Device *dev, FILE *f, long offset);
+
+// DMA function declarations
+uint32_t Device_DMAWrite(uint32_t coreAddress, uint16_t data);
+    
+int32_t Device_DMARead(uint32_t coreAddress);
 
 // Parity functions
 extern const uint8_t Device_OddParityTable[PARITY_TABLE_SIZE];
