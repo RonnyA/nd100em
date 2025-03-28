@@ -1,0 +1,204 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "deviceRTC.h"
+
+#define TICKS_20MS 10550  // Ticks for 20ms timer (adjusted for stability)
+
+static void RTC_Reset(Device *self) {
+    RTCData *data = (RTCData *)self->deviceData;
+    if (!data) return;
+
+    // Clear all registers and status
+    data->rtcStatus = 0;
+    data->rtcCounter = 0;
+    data->divisionNumberN = TICKS_20MS;
+    data->register1 = 0;
+    
+    data->statusRegister.bits.interruptEnabled = false;
+    data->statusRegister.bits.externalHoldPulse = false;
+    data->statusRegister.bits.readyForTransfer = false;
+
+    data->controlRegister.raw = 0;
+}
+
+static void RTC_ClearClockTicks(Device *self) {
+    RTCData *data = (RTCData *)self->deviceData;
+    if (!data) return;
+
+    data->rtcCounter = data->divisionNumberN;
+}
+
+static uint16_t RTC_Tick(Device *self) {
+    if (!self) return 0;
+    
+    RTCData *data = (RTCData *)self->deviceData;
+    if (!data) return 0;
+
+    // Process I/O delays
+    Device_TickIODelay(self);
+
+    // Count down the timer
+    data->rtcCounter--;
+
+    if (data->rtcCounter <= 0) {        
+        data->statusRegister.bits.readyForTransfer = true;
+        if (data->statusRegister.bits.interruptEnabled) {
+            Device_SetInterruptStatus(self, true, self->interruptLevel);
+        }
+        RTC_ClearClockTicks(self);
+    }
+
+    return self->interruptBits;
+}
+
+static uint16_t RTC_Read(Device *self, uint32_t address) {
+    if (!self) return 0;
+    
+    RTCData *data = (RTCData *)self->deviceData;
+    uint16_t value = 0;
+    uint32_t reg = Device_RegisterAddress(self, address);
+
+    switch (reg) {
+        case RTC_READ_DATA_REGISTER:
+            value = (uint16_t)data->rtcCounter;
+            break;
+
+        case RTC_READ_STATUS:
+            value = data->statusRegister.raw;
+            break;
+
+        default:
+            break;
+    }
+
+#ifdef DEBUG_RTC
+    printf("RTC Reading from address: %o value: %o\n", address, value);
+#endif
+
+    return value;
+}
+
+static void RTC_Write(Device *self, uint32_t address, uint16_t value) {
+    if (!self) return;
+    
+    RTCData *data = (RTCData *)self->deviceData;
+    uint32_t reg = Device_RegisterAddress(self, address);
+
+#ifdef DEBUG_RTC
+    printf("RTC Writing value: %o to address: %o\n", value, address);
+#endif
+
+    switch (reg) {
+        case RTC_CLEAR_COUNTER:
+            RTC_ClearClockTicks(self);
+            data->statusRegister.bits.readyForTransfer = false;
+            Device_SetInterruptStatus(self, false, self->interruptLevel);
+            break;
+
+        case RTC_WRITE_CONTROL:
+            data->controlRegister.raw = value;
+
+            // Update status register
+            data->statusRegister.bits.interruptEnabled = data->controlRegister.bits.interruptEnabled;            
+            
+            // Handle interrupt enable/disable            
+            if (!data->statusRegister.bits.interruptEnabled) {
+                Device_SetInterruptStatus(self, false, self->interruptLevel);
+            }
+
+
+            // Clear ready for transfer if requested
+            if (data->controlRegister.bits.clearReadyForTransfer) {
+                data->statusRegister.bits.readyForTransfer = false;
+            }
+
+            // Clear external hold signal if requested
+            if (data->controlRegister.bits.clearExternalHold) {
+                data->statusRegister.bits.externalHoldPulse = false;
+            }
+
+            // Restart clock if requested
+            if (data->controlRegister.bits.restartClock) {            
+                data->rtcCounter = data->divisionNumberN;
+                data->clockCountingStarted = true;
+            }
+            break;
+
+        default:
+            break;
+    }
+}
+
+static uint16_t RTC_Ident(Device *self, uint16_t level) {
+    if (!self) return 0;
+    
+    RTCData *data = (RTCData *)self->deviceData;
+    if (!data) return 0;
+
+    if ((self->interruptBits & (1 << level)) != 0) {
+        RTC_ClearClockTicks(self);
+        data->statusRegister.bits.interruptEnabled = false;
+        Device_SetInterruptStatus(self, false, level);
+        return self->identCode;
+    }
+    return 0;
+}
+
+Device* CreateRTCDevice(uint8_t thumbwheel) {
+    Device *dev = malloc(sizeof(Device));
+    if (!dev) return NULL;
+
+    RTCData *data = malloc(sizeof(RTCData));
+    if (!data) {
+        free(dev);
+        return NULL;
+    }
+
+    // Initialize device base structure
+    Device_Init(dev, thumbwheel);
+
+    // Set up device-specific data
+    memset(data, 0, sizeof(RTCData));
+
+    // Set up device properties based on thumbwheel
+    switch (thumbwheel) {
+        case 0:
+            dev->identCode = 01;
+            dev->startAddress = 010;
+            dev->endAddress = 013;
+            dev->interruptLevel = 13;
+            strcpy(dev->memoryName, "RTC 1");
+            break;
+        case 1:
+            dev->identCode = 02;
+            dev->startAddress = 014;
+            dev->endAddress = 017;
+            dev->interruptLevel = 13;
+            strcpy(dev->memoryName, "RTC 2");
+            break;
+        case 2:
+            dev->identCode = 06;
+            dev->startAddress = 020;
+            dev->endAddress = 023;
+            dev->interruptLevel = 13;
+            strcpy(dev->memoryName, "RTC 3");
+            break;
+        default:
+            printf("Unexpected thumbwheel code %d\n", thumbwheel);
+            free(data);
+            free(dev);
+            return NULL;
+    }
+
+    // Set up device function pointers
+    dev->Reset = RTC_Reset;
+    dev->Tick = RTC_Tick;
+    dev->Read = RTC_Read;
+    dev->Write = RTC_Write;
+    dev->Ident = RTC_Ident;
+    dev->deviceData = data;
+
+    printf("RTC device created: %s\n", dev->memoryName);
+    return dev;
+} 
