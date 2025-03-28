@@ -399,7 +399,7 @@ void FloppyPIO_ExecuteGo(Device *self, FloppyPIOCommand command) {
                 SetSectorAsDeleted(data, s, data->track, false);
             }
 
-            Device_QueueIODelay(self, IODELAY_FLOPPY, FloppyPIO_ReadEnd, unit, self->interruptLevel);
+            Device_QueueIODelay(self, IODELAY_FLOPPY, (IODelayedCallback)FloppyPIO_ReadEnd, unit, self->interruptLevel);
             break;
 
         case FLOPPY_CMD_WRITE_DATA:
@@ -444,7 +444,7 @@ void FloppyPIO_ExecuteGo(Device *self, FloppyPIOCommand command) {
             printf("FloppyPIO: Write %d WORDs\r\n", wordsRead);
 #endif
 
-            Device_QueueIODelay(self, IODELAY_FLOPPY, FloppyPIO_ReadEnd, unit, self->interruptLevel);
+            Device_QueueIODelay(self, IODELAY_FLOPPY, (IODelayedCallback)FloppyPIO_ReadEnd, unit, self->interruptLevel);
             break;
 
         case FLOPPY_CMD_WRITE_DELETED_DATA:
@@ -485,7 +485,7 @@ void FloppyPIO_ExecuteGo(Device *self, FloppyPIOCommand command) {
                 transferWordCount--;
             }
 
-            Device_QueueIODelay(self, IODELAY_FLOPPY, FloppyPIO_ReadEnd, unit, self->interruptLevel);
+            Device_QueueIODelay(self, IODELAY_FLOPPY, (IODelayedCallback)FloppyPIO_ReadEnd, unit, self->interruptLevel);
             break;
 
         case FLOPPY_CMD_READ_ID:
@@ -502,7 +502,7 @@ void FloppyPIO_ExecuteGo(Device *self, FloppyPIOCommand command) {
             }
 
             data->bufferPointer = 0;
-            Device_QueueIODelay(self, IODELAY_FLOPPY, FloppyPIO_ReadEnd, unit, self->interruptLevel);
+            Device_QueueIODelay(self, IODELAY_FLOPPY, (IODelayedCallback)FloppyPIO_ReadEnd, unit, self->interruptLevel);
             break;
 
         case FLOPPY_CMD_READ_DATA:
@@ -552,7 +552,7 @@ void FloppyPIO_ExecuteGo(Device *self, FloppyPIOCommand command) {
 #endif
 
             // Simulate transfer delay
-            Device_QueueIODelay(self, IODELAY_FLOPPY, FloppyPIO_ReadEnd, unit, self->interruptLevel);
+            Device_QueueIODelay(self, IODELAY_FLOPPY, (IODelayedCallback)FloppyPIO_ReadEnd, unit, self->interruptLevel);
             break;
 
         case FLOPPY_CMD_SEEK:
@@ -567,14 +567,14 @@ void FloppyPIO_ExecuteGo(Device *self, FloppyPIOCommand command) {
                 return;
             }
 
-            Device_QueueIODelay(self, IODELAY_FLOPPY, FloppyPIO_SeekEnd, unit, self->interruptLevel);
+            Device_QueueIODelay(self, IODELAY_FLOPPY, (IODelayedCallback)FloppyPIO_SeekEnd, unit, self->interruptLevel);
             break;
 
         case FLOPPY_CMD_RECALIBRATE:
             printf("Starting Recalibrate\r\n");
             data->track = 0;
             data->sector = 1;            
-            Device_QueueIODelay(self, IODELAY_FLOPPY, FloppyPIO_RecalibrateEnd, unit, self->interruptLevel);
+            Device_QueueIODelay(self, IODELAY_FLOPPY, (IODelayedCallback)FloppyPIO_RecalibrateEnd, unit, self->interruptLevel);
             break;
 
         case FLOPPY_CMD_CONTROL_RESET:
@@ -585,6 +585,8 @@ void FloppyPIO_ExecuteGo(Device *self, FloppyPIOCommand command) {
             break;
     }
 }
+
+
 
 Device* CreateFloppyPIODevice(uint8_t thumbwheel) {
     Device *dev = malloc(sizeof(Device));
