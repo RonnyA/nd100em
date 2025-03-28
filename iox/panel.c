@@ -1,4 +1,5 @@
-#include "panel.h"  
+#include "panel.h"
+#include <stdlib.h>
 
 void setup_pap(){
     
