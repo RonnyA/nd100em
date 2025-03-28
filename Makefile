@@ -4,65 +4,63 @@ CC= gcc
 #CFLAGS = -ggdb
 CFLAGS = -Wall -O3 -pg -fno-aggressive-loop-optimizations -ggdb
 
-SRCS = main.c \
-       cpu.c \
-       memory.c \
-       io_new.c \
-       iox/device.c \
-       iox/devicemanager.c \
-       iox/devicePapertape.c \
-       iox/deviceFloppyPIO.c \
-       iox/deviceTerminal.c \
-       iox/deviceRTC.c \
-       iox/panel.c
+# Source files
+SRCS = nd100em.c \
+		cpu.c \
+		iox/devicemanager.c \
+		iox/device.c \
+		iox/deviceRTC.c \
+		iox/devicePapertape.c \
+		iox/deviceFloppyPIO.c \
+		iox/deviceSMD.c \
+		iox/deviceTerminal.c \
+		iox/panel.c \
+		io_new.c \
+		floppy.c \
+		nd100lib.c \
+		float.c \
+		mon.c \
+		trace.c \
+		decode.c
+		
 
+# Object files
 OBJS = $(SRCS:.c=.o)
+
+# Include files that should trigger recompilation when changed
+INCLUDES = nd100em.h \
+          cpu.h \
+          io_new.h \
+          nd100.h \
+          nd100lib.h \
+          iox/device.h \
+          iox/devicemanager.h \
+          iox/devicePapertape.h \
+          iox/deviceFloppyPIO.h \
+          iox/deviceTerminal.h \
+		  iox/deviceSMD.c \
+          iox/deviceRTC.h \
+          iox/panel.h \
+		  floppy.h \
+		  float.h \
+		  mon.h \
+		  trace.h \
+		  decode.h
+		  
 
 all: nd100em
 
 clean:
-	rm -f cpu.o mon.o trace.o decode.o float.o floppy.o io_new.o nd100lib.o nd100em.o iox/device.o iox/devicemanager.o iox/devicePapertape.o iox/deviceFloppyPIO.o iox/deviceTerminal.o iox/deviceRTC.o iox/panel.o nd100em core
+	rm -f $(OBJS) nd100em core
 
-cpu.o: cpu.c cpu.h nd100.h
-	$(CC) $(CFLAGS) -c cpu.c
-
-memory.o: memory.c memory.h nd100.h
-	$(CC) $(CFLAGS) -c memory.c
-
-io_new.o: io_new.c io_new.h nd100.h
-	$(CC) $(CFLAGS) -c io_new.c
-
-iox/device.o: iox/device.c iox/device.h
-	$(CC) $(CFLAGS) -c iox/device.c -o iox/device.o
-
-iox/devicemanager.o: iox/devicemanager.c iox/devicemanager.h iox/device.h
-	$(CC) $(CFLAGS) -c iox/devicemanager.c -o iox/devicemanager.o
-
-iox/devicePapertape.o: iox/devicePapertape.c iox/devicePapertape.h iox/device.h
-	$(CC) $(CFLAGS) -c iox/devicePapertape.c -o iox/devicePapertape.o
-
-iox/deviceFloppyPIO.o: iox/deviceFloppyPIO.c iox/deviceFloppyPIO.h iox/device.h
-	$(CC) $(CFLAGS) -c iox/deviceFloppyPIO.c -o iox/deviceFloppyPIO.o
-
-iox/deviceTerminal.o: iox/deviceTerminal.c iox/deviceTerminal.h iox/device.h
-	$(CC) $(CFLAGS) -c iox/deviceTerminal.c -o iox/deviceTerminal.o
-
-iox/deviceRTC.o: iox/deviceRTC.c iox/deviceRTC.h iox/device.h
-	$(CC) $(CFLAGS) -c iox/deviceRTC.c -o iox/deviceRTC.o
-
-iox/panel.o: iox/panel.c iox/panel.h iox/device.h
-	$(CC) $(CFLAGS) -c iox/panel.c -o iox/panel.o
-
-nd100lib.o: nd100lib.c nd100lib.h nd100.h
-	$(CC) $(CFLAGS) -c nd100lib.c
-
-nd100em: nd100em.o nd100lib.o cpu.o mon.o decode.o float.o floppy.o io_new.o trace.o iox/device.o iox/devicemanager.o iox/devicePapertape.o iox/deviceFloppyPIO.o iox/deviceTerminal.o iox/deviceRTC.o iox/panel.o
-	$(CC) $(CFLAGS) -pthread nd100em.o nd100lib.o cpu.o mon.o decode.o float.o floppy.o io_new.o trace.o iox/device.o iox/devicemanager.o iox/devicePapertape.o iox/deviceFloppyPIO.o iox/deviceTerminal.o iox/deviceRTC.o iox/panel.o -lconfig -lm -o nd100em
-
-# Compilation rules
-$(OBJDIR)/%.o: %.c
+# Pattern rule for compiling source files
+%.o: %.c $(INCLUDES)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(OBJDIR)/iox/%.o: iox/%.c
+# Special rule for iox directory files
+iox/%.o: iox/%.c $(INCLUDES)
 	$(CC) $(CFLAGS) -c $< -o $@
+
+nd100em: $(OBJS)
+	$(CC) $(CFLAGS) $(OBJS) -lconfig -lm -o nd100em
 
