@@ -151,14 +151,14 @@ static Device *CreateDevice(DeviceType type, uint8_t thumbwheel)
             return NULL;
         }
         break;
-    case DEVICE_TYPE_FLOPPY_DMA:
+    case DEVICE_TYPE_FLOPPY_DMA:    
         dev = CreateFloppyDMADevice(thumbwheel);
-         if (!dev)
+        if (!dev)
         {
             Log(LOG_ERROR, "Failed to create floppy DMA device\n");
             return NULL;
-        }        
-        return NULL;
+        }                
+        break;
     default:
         Log(LOG_ERROR, "Unknown device type: %d\n", type);
         return NULL;
@@ -202,6 +202,10 @@ bool DeviceManager_AddDevice(DeviceType type, uint8_t thumbwheel)
         deviceManager.deviceCount++;
         return true;
     }
+    else
+    {
+        Log(LOG_ERROR, "Failed to create device\n");
+    }
 
     return false;
 }
@@ -210,16 +214,18 @@ uint16_t DeviceManager_Read(uint32_t address)
 {
     for (int i = 0; i < deviceManager.deviceCount; i++)
     {
+        
         Device *dev = deviceManager.devices[i].device;
+
         if (dev && Device_IsInAddress(dev, address))
         {
-            Log(LOG_DEBUG, "Device found for READ address: %o\n", address);
+            //Log(LOG_DEBUG, "Device found for READ address: %o\n", address);
             return Device_Read(dev, address);
         }
     }
 
     interrupt(14,1<<7); /* IOX error lvl14 */
-    Log(LOG_INFO, "No device found for READ address: %o\n", address);
+    //Log(LOG_WARNING, "No device found for READ address: %o\n", address);
     return 0;
 }
 
@@ -230,21 +236,21 @@ void DeviceManager_Write(uint32_t address, uint16_t value)
         Device *dev = deviceManager.devices[i].device;
         if (!dev)
         {
-            Log(LOG_WARNING, "Device at index %d is NULL\n", i);
+            Log(LOG_ERROR, "Device at index %d is NULL\n", i);
             continue;
         }
 
 
         if (Device_IsInAddress(dev, address))
         {
-            Log(LOG_DEBUG, "Device found for WRITE address: %o\n", address);
+            //Log(LOG_DEBUG, "Device found for WRITE address: %o\n", address);
             Device_Write(dev, address, value);
             return;
         }
     }
 
     interrupt(14,1<<7); /* IOX error lvl14 */
-    Log(LOG_INFO, "No device found for WRITE address: %o\n", address);
+    //Log(LOG_WARNING, "No device found for WRITE address: %o\n", address);
 }
 
 uint16_t DeviceManager_Ident(uint16_t level)
@@ -263,7 +269,7 @@ uint16_t DeviceManager_Ident(uint16_t level)
     }
 
     interrupt(14,1<<7); /* IOX error lvl14 */
-    Log(LOG_INFO, "No device found for IDENT level: %d\n", level);
+    //Log(LOG_WARNING, "No device found for IDENT level: %d\n", level);
     return 0;
 }
 
@@ -278,10 +284,7 @@ uint16_t DeviceManager_Tick(void)
             interruptBits |= Device_Tick(dev);
         }
     }
-    if (interruptBits>0)
-    {
-       // printf("Interrupt bits: %o\n", interruptBits);
-    }
+
     return interruptBits;
 }
 

@@ -174,9 +174,7 @@ void Device_TickIODelay(Device *dev)
 
         if (delay->delayTicks <= 0)
         {
-            bool triggered = delay->callback(delay->context, delay->parameter);
-            if (delay->level == 11) printf("Callback LVL[%d] PARAM[%d] Returned %d!!\r\n",  delay->level, delay->parameter, triggered);
-
+            bool triggered = delay->callback(delay->context, delay->parameter);            
             if (triggered && delay->level > 0)
             {
                 Device_GenerateInterrupt(dev, delay->level);

@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include "devicePapertape.h"
 
 static void PaperTape_Reset(Device *self) {
@@ -137,12 +138,14 @@ Device* CreatePaperTapeDevice(uint8_t thumbwheel) {
     // Set up device address and interrupt settings based on thumbwheel
     switch (thumbwheel) {
         case 0:
+            strcpy(dev->memoryName, "PAPER TAPE 0");
             dev->interruptLevel = 12;
             dev->identCode = 02;  // octal 02
             dev->startAddress = 0400;
             dev->endAddress = 0403;
             break;
         case 1:
+            strcpy(dev->memoryName, "PAPER TAPE 1");
             dev->interruptLevel = 12;
             dev->identCode = 022;  // Octal 22
             dev->startAddress = 0404;

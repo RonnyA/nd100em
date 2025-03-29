@@ -385,7 +385,7 @@ void FloppyPIO_ExecuteGo(Device *self, FloppyPIOCommand command) {
             for (int s = 1; s <= data->sectors_pr_track; s++) {
                 transferWordCount = data->bytes_pr_sector >> 1;
                 while (transferWordCount > 0) {
-                    if (!Device_WriteWord(self, data->floppyFile, formatData)) {
+                    if (!Device_IO_WriteWord(self, data->floppyFile, formatData)) {
 #ifdef DEBUG_FLOPPY_PIO
                         printf("IO error during [FORMAT] Track=%d, Sector=%d\r\n", 
                                data->track, data->sector);
@@ -425,7 +425,7 @@ void FloppyPIO_ExecuteGo(Device *self, FloppyPIOCommand command) {
                 uint16_t writeData = data->dataBuffer[data->bufferPointer];
                 data->bufferPointer = (data->bufferPointer + 1) & 0x3FF;
 
-                if (!Device_WriteWord(self, data->floppyFile, writeData)) {
+                if (!Device_IO_WriteWord(self, data->floppyFile, writeData)) {
 #ifdef DEBUG_FLOPPY_PIO
                     printf("IO ERROR in WRITE at %d\r\n", position);
 #endif
@@ -472,7 +472,7 @@ void FloppyPIO_ExecuteGo(Device *self, FloppyPIOCommand command) {
                 uint16_t writeData = data->dataBuffer[data->bufferPointer];
                 data->bufferPointer = (data->bufferPointer + 1) & 0x3FF;
 
-                if (!Device_WriteWord(self, data->floppyFile, writeData)) {
+                if (!Device_IO_WriteWord(self, data->floppyFile, writeData)) {
 #ifdef DEBUG_FLOPPY_PIO
                     printf("IO ERROR in WriteDeletedData at %d\r\n", position);
 #endif
@@ -531,7 +531,7 @@ void FloppyPIO_ExecuteGo(Device *self, FloppyPIOCommand command) {
             }
 
             while (transferWordCount > 0) {
-                int readData = Device_ReadWord(self, data->floppyFile);
+                int readData = Device_IO_ReadWord(self, data->floppyFile);
                 if (readData == -1) {
 #ifdef DEBUG_FLOPPY_PIO
                     printf("IO ERROR in READ at %d FAILED\r\n", position);
