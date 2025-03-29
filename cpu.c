@@ -831,60 +831,152 @@ void ndfunc_ldf(ushort operand){
 	gPC++;
 }
 
-/* LDATX
- */
-void ndfunc_ldatx(ushort operand){
-	ushort temp;
-	unsigned int fulladdress;
-	temp = (operand & 0x0038)>>3;
-	fulladdress = (((unsigned int)gT) <<16) | (ushort)(gX + temp);
-	gA = PhysMemRead(fulladdress);
-	/* TODO:: privilege check... */
+
+
+
+/// <summary>
+/// Check if we are allowed to run a privileged instruction
+/// 
+/// Privileged intructions are only available to programs running in system mode (rings 2 and 3) or when memory protection is disabled;
+/// </summary>
+/// <returns>TRUE if allowed to execute</returns>
+bool CheckPriv()
+{
+	if (!STS_PONI) return true; // memory protection disabled
+
+	// Check ring
+	ushort pcr = gReg->reg_PCR[CurrLEVEL];
+	ushort ring = pcr & 0x03;
+
+	if ((ring == 2) || (ring == 3)) return true;
+
+	// Failed, not allowed to execute
+	interrupt(14, 1<<6); // Privileged instruction
+	return false;
+}
+
+
+// Calculate effective address for LDnTX
+unsigned int calcEL(short operand)
+{
+	short displacement = (operand & 0x0038)>>3;
+	unsigned int EL = (gX + displacement) & 0xFFFF;
+	EL = (gT & 0xFF) << 16 | EL;
+	EL = EL & 0xFFFFFF; // Cap at 24 bits
+
+	return EL;
+}
+
+/// <summary>
+/// Load A register
+///
+/// Code: 143 3n0
+/// Format: LDATX
+///
+/// Load the contents of the physical memory location pointed to
+/// by the effective address into the A register.
+/// A := (EL)
+///
+/// Affected: (A)
+/// </summary>
+void ndfunc_ldatx(ushort operand)
+{
+	if (!CheckPriv())
+	{	
+		gPC++;
+		return;
+	}
+
+	unsigned int EL = calcEL(operand);
+	gA = PhysMemRead(EL);
+	
 	gPC++;
 }
 
-/* LDXTX
- */
-void ndfunc_ldxtx(ushort operand){
-	ushort temp;
-	unsigned int fulladdress;
-	temp = (operand & 0x0038)>>3;
-	fulladdress = (((unsigned int)gT) <<16) | (ushort)(gX + temp);
-	gX = PhysMemRead(fulladdress);
-	/* TODO:: privilege check... */
+
+/// <summary>
+/// Load X register
+/// Code: 143 3n1
+/// Format: LDXTX
+///
+/// Load the contents of the physical memory location pointed to
+/// by the effective address into the X  register.
+/// X := (EL)
+///
+/// Affected: (X)
+/// </summary>
+void ndfunc_ldxtx(ushort operand)
+{
+	if (!CheckPriv())
+	{	
+		gPC++;
+		return;
+	}
+
+	unsigned int EL = calcEL(operand);
+	gX = PhysMemRead(EL);
+
 	gPC++;
 }
 
-/* LDDTX
- */
+
+
+/// <summary>
+/// Load Double Word
+/// Code: 143 3n2
+/// Format: LDDTX
+///
+/// Load the contents of the physical memory location pointed to by the effective address
+/// into the A register and the contents of the effective address plus one  into the D register
+/// A := (EL), D := (EL + 1) .
+///
+/// Affected: (A,D)
+/// </summary>
 void ndfunc_lddtx(ushort operand){
-	ushort temp;
-	unsigned int fulladdress;
-	temp = (operand & 0x0038)>>3;
-	fulladdress = (((unsigned int)gT) <<16) | (ushort)(gX + temp);
-	gA = PhysMemRead(fulladdress);
-	fulladdress++;
-	gD = PhysMemRead(fulladdress);
-	/* TODO:: privilege check... */
+
+	if (!CheckPriv())
+	{	
+		gPC++;
+		return;
+	}
+
+	unsigned int EL = calcEL(operand);
+	gA = PhysMemRead(EL);
+	EL++;
+	gD = PhysMemRead(EL);
+	
 	gPC++;
 }
 
-/* LDBTX
- */
+
+/// <summary>
+/// Load B register
+///
+/// Code: 143 3n3
+/// Format: LDBTX
+/// 
+/// Load the contents of the physical memory location pointed to by the twice the
+/// effective address contents into the B register, then OR the value with 177 000 
+/// B := 177000 V ((EL) + (EL)) (V = inclusive OR)
+///
+/// Affected: (B)
+/// </summary>
 void ndfunc_ldbtx(ushort operand){
-	ushort temp;
-	unsigned int fulladdress;
+
+	if (!CheckPriv())
+	{	
+		gPC++;
+		return;
+	}
+
+	unsigned int EL = calcEL(operand);
+	ushort temp;	
 	unsigned int result;
-	/* Bit odd instruction. See ND-06.014 section 3.3.10 */
-	/* "B: = 177000 ? ((EL) + (EL)) (? = inclusive OR)" */
-	temp = (operand & 0x0038)>>3;
-	fulladdress = (((unsigned int)gT) <<16) | (ushort)(gX + temp);
-	/* Ok, lets get all accesses now into temp variable */
-	temp = PhysMemRead(fulladdress);
-	result = temp + temp;
-	temp = PhysMemRead(result);
-	gB = 0177000 | temp;
-	/* TODO:: privilege check... */
+
+	temp = PhysMemRead(EL);
+	result = (temp + temp) & 0xFFFF;		
+	gB = result | 0xFE00; // 0177000
+
 	gPC++;
 }
 
