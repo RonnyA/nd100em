@@ -1825,9 +1825,10 @@ void regop(ushort operand) { /* SWAP RAND REXO RORA RADD RCLR EXIT RDCR RING RSU
 
 	sr = ((operand & 0x0038) >> 3);
 	dr = (operand & 0x0007);
+
+	gPC++;	/* Count up first, as if P is used as source, it's the value of the next instruction. */
 	source = (sr==0) ? 0 : gReg->reg[CurrLEVEL][sr] & 0xFFFF; /* handles special case when sr=STS reg */
 
-	gPC++;	/* Count up first, as if P is used, it's the value of the next instruction. */
 	switch (RAD) {
 		case 0 : /* Logical operation - SWAP RAND REXO RORA */
 			if (dr != 0) {
@@ -3272,6 +3273,13 @@ void PhysMemWrite(ushort value, ulong addr){
 	// 11.09.22: Removed this mask and now read and wrtie physical seems to work
 	//addr &= (ND_Memsize); /* Mask it to the memory size we have to prevent coredumps :) */
 
+	// Check memory bounds
+	if (addr < 0 || addr >= (sizeof(VolatileMemory.n_Array) / sizeof(VolatileMemory.n_Array[0]))) {
+
+		interrupt(14,1<<9); /* Memory out of range */
+		return;
+	}	
+
 	p_phy_addr = &VolatileMemory.n_Array[addr];	
 	*p_phy_addr = value;
 }
@@ -3286,6 +3294,13 @@ ushort PhysMemRead(ulong addr){
 		return(res); /* PT data */
 	}
 	
+	// Check memory bounds
+	if (addr < 0 || addr >= (sizeof(VolatileMemory.n_Array) / sizeof(VolatileMemory.n_Array[0]))) {
+
+		interrupt(14,1<<9); /* Memory out of range */
+		return 0;
+	}	
+
 	// 11.09.22: Removed this mask and now read and wrtie physical seems to work
 	//addr &= (ND_Memsize); /* Mask it to the memory size we have to prevent coredumps :) */
 
@@ -3559,6 +3574,25 @@ ushort MemoryFetch(ushort addr, bool UseAPT) {
 	}
 }
 
+uint32_t MemoryReadPhysical(ulong addr) {
+	// return -1 if outside of memory
+	if (addr < 0 || addr >= (sizeof(VolatileMemory.n_Array) / sizeof(VolatileMemory.n_Array[0]))) {
+		return -1;
+	}
+	return VolatileMemory.n_Array[addr];
+}
+
+uint32_t MemoryWritePhysical(ulong addr, uint32_t value) {	
+	// return -1 if outside of memory
+	if (addr < 0 || addr >= (sizeof(VolatileMemory.n_Array) / sizeof(VolatileMemory.n_Array[0]))) {
+		return -1;
+		printf("MEM: OUT OF BOND\r\n");
+
+	}
+	//printf("MEM: Writing %08o to %08o\r\n", value, addr);
+	VolatileMemory.n_Array[addr] = value;
+	return 0;
+}
 void cpurun(){
 	int s;
 	ushort operand, p_now;
