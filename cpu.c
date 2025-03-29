@@ -2854,6 +2854,17 @@ void rdiv(ushort instr){
 	/* Overflow and division with zero also need to be fixed!! */
 	/* :NOTE: The way it is described in the manual, we assume this is a fraction (numerator/denominator and return a quotient and remainder as per manual */
 	divider = ((instr & 0x0038) >> 3) ? (sshort)gReg->reg[gPIL][((instr & 0x0038) >> 3)] : 0;
+
+
+	if (divider == 0)
+	{
+		// Division by zero		
+		setbit(_STS,_Z,1);
+		gPC++;
+		return;
+	}
+
+
 	dividend = ((int)gA << 16) | gD;
 	result3 = div(dividend,divider);
 	gA = result3.quot;
