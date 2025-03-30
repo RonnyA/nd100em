@@ -60,7 +60,7 @@ extern void disasm_addword(ushort addr, ushort myword);
 extern void disasm_init();
 extern void disasm_dump();
 extern void setup_pap();
-extern void cpu_thread();
+extern void cpu_start();
 
 int main(int argc, char *argv[]);
 

@@ -553,6 +553,9 @@ void setup_cpu(){
 	/* Initialize IO handler functions */
 	IO_Init();
 
+	/* Initialize volatile memory to zero */
+	memset(&VolatileMemory, 0, sizeof(VolatileMemory));
+
 	setbit(_STS,_O,1);
 	setbit_STS_MSB(_N100,1);
 	gCSR = 1<<2;	/* this bit sets the cache as not available */
@@ -561,6 +564,17 @@ void setup_cpu(){
 	CurrentCPURunMode = RUN;
 	instr_counter=0;
 
+	// Allocate ShadowMemory for pagetables
+	CreatePagingTables();
+
+	/* OK lets set up the parsing for our current cpu before we start it. */
+	Setup_Instructions(); 
+}
+
+void cleanup_cpu()
+{
+	// Destroy paging tables
+	DestroyPagingTables();
 }
 
 void program_load(){

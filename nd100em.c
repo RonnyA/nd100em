@@ -45,7 +45,12 @@ int main(int argc, char *argv[]) {
 
 	used=calloc(1,sizeof(struct rusage)); /* Perf counter stuff */
 	res=nd100emconf(); /* Load Configuration */
-	if (res) exit(1); /* Configuration error */
+	if (res)
+	{
+		printf("Configuration error. Exiting..");
+		 exit(1); /* Configuration error */
+	}
+
 	if (DAEMON)
 		daemonize();
 	blocksignals();
@@ -65,8 +70,8 @@ int main(int argc, char *argv[]) {
 	setcbreak ();
 	setvbuf(stdout, NULL, _IONBF, 0);
 
-	//start_threads();
-	cpu_thread();
+	// Run the CPU
+	cpu_start();
 
 	getrusage(RUSAGE_SELF, used);	/* Read how much resources we used */
 
@@ -81,5 +86,9 @@ int main(int argc, char *argv[]) {
 
 	disasm_dump();
 
+	// Clean up memory
+	cleanup_cpu();
+
+	// exit
 	return(0);
 }
