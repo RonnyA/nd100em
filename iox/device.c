@@ -273,15 +273,13 @@ int32_t Device_IO_WriteWord(Device *dev, FILE *f, uint16_t data)
     return 0;
 }
 
-// In cpu.c
-extern uint32_t MemoryReadPhysical(uint32_t addr);
-extern uint32_t MemoryWritePhysical(uint32_t addr, uint32_t value);
+
 
 
 uint32_t Device_DMAWrite(uint32_t coreAddress, uint16_t data) {    
-    return MemoryWritePhysical(coreAddress, data);
+    WritePhysicalMemory(coreAddress, data, false);    
 }
 
 int32_t Device_DMARead(uint32_t coreAddress) {
-    return MemoryReadPhysical(coreAddress);
+    return ReadPhysicalMemory(coreAddress, false);
 }
