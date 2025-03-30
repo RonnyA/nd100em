@@ -70,10 +70,12 @@ void DeviceManager_MasterClear(void);
 bool DeviceManager_AddDevice(DeviceType type, uint8_t thumbwheel);
 uint16_t DeviceManager_Read(uint32_t address);
 void DeviceManager_Write(uint32_t address, uint16_t value);
-uint16_t DeviceManager_Ident(uint16_t level);
+int DeviceManager_Ident(uint16_t level);
 uint16_t DeviceManager_Tick(void);
 Device* DeviceManager_GetDeviceByAddress(uint32_t address);
 void DeviceManager_AddAllDevices(void);
+
+void DeviceManager_ClearRTC_INT();
 
 // Logging function
 void Log(LogLevel level, const char* format, ...);

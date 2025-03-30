@@ -273,7 +273,8 @@ void DeviceManager_Write(uint32_t address, uint16_t value)
     //Log(LOG_WARNING, "No device found for WRITE address: %o\n", address);
 }
 
-uint16_t DeviceManager_Ident(uint16_t level)
+
+int DeviceManager_Ident(uint16_t level)
 {
     for (int i = 0; i < deviceManager.deviceCount; i++)
     {
@@ -288,9 +289,34 @@ uint16_t DeviceManager_Ident(uint16_t level)
         }
     }
 
-    interrupt(14,1<<7); /* IOX error lvl14 */
+    //interrupt(14,1<<7); /* IOX error lvl14 */
     //Log(LOG_WARNING, "No device found for IDENT level: %d\n", level);
-    return 0;
+    return -1;
+}
+
+static Device *rtc_dev;
+/// @brief Special function to clear interrupt on RTC clock
+void DeviceManager_ClearRTC_INT()
+{
+    // Optimize for speed by using eralier found reference
+    if (rtc_dev)
+    {
+        rtc_dev->interruptBits &= ~(1<<13);
+    }
+
+    // Find rtc device
+    for (int i = 0; i < deviceManager.deviceCount; i++)
+    {
+        Device *dev = deviceManager.devices[i].device;
+        if (dev)
+        {
+            rtc_dev = dev;
+            if (dev->isRTC)
+            {
+                dev->interruptBits &= ~(1<<13);
+            }
+        }
+    }
 }
 
 uint16_t DeviceManager_Tick(void)

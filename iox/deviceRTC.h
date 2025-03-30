@@ -74,7 +74,6 @@ typedef union {
 
 // RTC device data structure
 typedef struct {
-    uint16_t rtcStatus;
     int rtcCounter;
     int divisionNumberN;
     uint16_t register1;

@@ -18,6 +18,7 @@
  * distribution in the file COPYING); if not, see <http://www.gnu.org/licenses/>.
  */
 
+//#define DEBUG_RTC
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -29,16 +30,12 @@ static void RTC_Reset(Device *self) {
     RTCData *data = (RTCData *)self->deviceData;
     if (!data) return;
 
-    // Clear all registers and status
-    data->rtcStatus = 0;
+    // Clear all registers and status    
     data->rtcCounter = 0;
     data->divisionNumberN = TICKS_20MS;
     data->register1 = 0;
     
-    data->statusRegister.bits.interruptEnabled = false;
-    data->statusRegister.bits.externalHoldPulse = false;
-    data->statusRegister.bits.readyForTransfer = false;
-
+    data->statusRegister.raw = 0;
     data->controlRegister.raw = 0;
 }
 
@@ -62,9 +59,15 @@ static uint16_t RTC_Tick(Device *self) {
     data->rtcCounter--;
 
     if (data->rtcCounter <= 0) {        
-        data->statusRegister.bits.readyForTransfer = true;
-        if (data->statusRegister.bits.interruptEnabled) {
-            Device_SetInterruptStatus(self, true, self->interruptLevel);
+        if (!data->statusRegister.bits.readyForTransfer)
+        {
+            data->statusRegister.bits.readyForTransfer = true;
+            if (data->statusRegister.bits.interruptEnabled) {
+#ifdef DEBUG_RTC
+                printf("RTC Setting interrupt status to true\n");
+#endif                
+                Device_SetInterruptStatus(self, true, self->interruptLevel);
+            }
         }
         RTC_ClearClockTicks(self);
     }
@@ -95,6 +98,7 @@ static uint16_t RTC_Read(Device *self, uint32_t address) {
 #ifdef DEBUG_RTC
     printf("RTC Reading from address: %o value: %o\n", address, value);
 #endif
+
 
     return value;
 }
@@ -130,12 +134,12 @@ static void RTC_Write(Device *self, uint32_t address, uint16_t value) {
 
             // Clear ready for transfer if requested
             if (data->controlRegister.bits.clearReadyForTransfer) {
-                data->statusRegister.bits.readyForTransfer = false;
+                data->statusRegister.bits.readyForTransfer = 0;
             }
 
             // Clear external hold signal if requested
             if (data->controlRegister.bits.clearExternalHold) {
-                data->statusRegister.bits.externalHoldPulse = false;
+                data->statusRegister.bits.externalHoldPulse = 0;
             }
 
             // Restart clock if requested
@@ -188,6 +192,7 @@ Device* CreateRTCDevice(uint8_t thumbwheel) {
             dev->startAddress = 010;
             dev->endAddress = 013;
             dev->interruptLevel = 13;
+            dev->isRTC = 1;
             strcpy(dev->memoryName, "RTC 1");
             break;
         case 1:

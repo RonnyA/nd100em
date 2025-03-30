@@ -85,6 +85,9 @@ typedef struct Device {
     void (*Write)(struct Device *self, uint32_t address, uint16_t value);
     uint16_t (*Ident)(struct Device *self, uint16_t level);
     
+    // special for onboard RTC
+    bool isRTC;
+    
     // Device-specific data
     void *deviceData;
 } Device;
