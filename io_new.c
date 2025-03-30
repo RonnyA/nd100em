@@ -59,7 +59,7 @@ void IO_Write(uint32_t address, uint16_t value)
     DeviceManager_Write(address, value);
 }
 
-uint16_t IO_Ident(uint16_t level)
+int IO_Ident(uint16_t level)
 {
     return DeviceManager_Ident(level);
 }

@@ -3111,10 +3111,10 @@ ulong ShiftDoubleReg(ulong reg, ushort instr)
 void DoIDENT(ushort priolevel)
 {
 
-	ushort id = IO_Ident(priolevel);
-	if (id > 0)
+	int id = IO_Ident(priolevel);
+	if (id >= 0)
 	{
-		gA = id;
+		gA = id & 0xFFFF;
 		if (priolevel != 13) // Dont trace RTC, its just too much
 		{
 			if (trace)
@@ -3123,11 +3123,13 @@ void DoIDENT(ushort priolevel)
 	}
 	else
 	{
+		gA = 0;
+
 		if (debug)
 			fprintf(debugfile, "DoIDENT IOX Error lvl=%d\n", priolevel);
 		interrupt(14, 1 << 7); /* IOX Error if no IDENT code found */
 		if (trace)
-			trace_pre(2, "PID", gPID, "PIE", gPIE);
+			trace_pre(2, "PID", gPID, "PIE", gPIE);			
 	}
 	return;
 }
@@ -4518,6 +4520,18 @@ void cpurun()
 			gPVL = gPIL; /* Save current runlevel */
 			setPIL(gPK); /* Change to new runlevel */
 			prefetch();	 /* Ok, since we are changing runlevel, we chuck old prefetched instruction and fetch a new one. */
+
+			// Make sure that the RTC interrupt is cleared when we leave runlevel 13
+			//
+			// Real Time Clock is a bit special as its not a "real" ND bus device but is a device on the CPU Board.
+			// Some code does an "IDENT PL13" that resets the interrupt flag, some disables interrupt (that resets the interrupt flag)
+			// Some dont do anything, like TPE-MON-100-B01.
+			// It seems the CPU board has a "special" way of clearing the interrupt flag that I havent understood 100%.
+			// Anyway, clearing the RTC interrupt bits after leaving Level 13 fixes the problem.
+			if (gPVL == 13)
+			{
+				DeviceManager_ClearRTC_INT();
+			}
 		}
 		if (trace)
 			trace_post(1, "S", gReg->reg[CurrLEVEL][0]);
@@ -4875,15 +4889,8 @@ void Setup_Instructions()
 
 	Instruction_Add(0154000, 0157777, &ndfunc_shifts); /* SHT, SHD, SHA, SAD */
 													   /* NOTE: this is actually a ND1 instruction, so need to check which NDs implement it later */
-	switch (CurrentCPUType)
-	{
-	case ND1:
-		/* ND1 only instruction */
-		Instruction_Add(0160000, 01163777, &ndfunc_iot); /* IOT */
-		break;
-	default:
-		break;
-	}
+
+	Instruction_Add(0160000, 0163777, &ndfunc_iot); /* IOT  - ND1 specific, but exists on all CPU's*/
 	Instruction_Add(0164000, 0167777, &ndfunc_iox); /* IOX */
 	Instruction_Add(0170000, 0170377, &ndfunc_sab); /* SAB */
 	Instruction_Add(0170400, 0170777, &ndfunc_saa); /* SAA */
