@@ -2,17 +2,24 @@
 
 CC= gcc
 #CFLAGS = -ggdb
-CFLAGS = -Wall -O3 -pg -fno-aggressive-loop-optimizations -ggdb
+
+# Nodebug
+#CFLAGS = -Wall -O3 -pg -fno-aggressive-loop-optimizations -ggdb 
+
+# Debug
+CFLAGS = -Wall -O0 -pg -fno-aggressive-loop-optimizations -ggdb -DDEBUG
 
 # Source files
 SRCS = nd100em.c \
 		cpu.c \
+		cpu_mms.c \
 		iox/devicemanager.c \
 		iox/device.c \
 		iox/deviceRTC.c \
 		iox/devicePapertape.c \
 		iox/deviceFloppyPIO.c \
 		iox/deviceSMD.c \
+		iox/diskSMD.c \
 		iox/deviceTerminal.c \
 		iox/panel.c \
 		io_new.c \
@@ -21,7 +28,8 @@ SRCS = nd100em.c \
 		float.c \
 		mon.c \
 		trace.c \
-		decode.c
+		decode.c \
+		iox/deviceFloppyDMA.c
 		
 
 # Object files
@@ -30,6 +38,7 @@ OBJS = $(SRCS:.c=.o)
 # Include files that should trigger recompilation when changed
 INCLUDES = nd100em.h \
           cpu.h \
+          cpu_mms.h \
           io_new.h \
           nd100.h \
           nd100lib.h \
@@ -38,7 +47,8 @@ INCLUDES = nd100em.h \
           iox/devicePapertape.h \
           iox/deviceFloppyPIO.h \
           iox/deviceTerminal.h \
-		  iox/deviceSMD.c \
+		  iox/deviceSMD.h \
+		  iox/diskSMD.h \
           iox/deviceRTC.h \
           iox/panel.h \
 		  floppy.h \
