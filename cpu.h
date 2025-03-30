@@ -232,8 +232,8 @@ void setcbreak (void);
 bool IsSkip(ushort instr);
 ushort GetEffectiveAddr(ushort instr);
 ushort New_GetEffectiveAddr(ushort instr, bool *use_apt);
-void PT_Write(ushort value, ushort addr, ushort byte_select);
-ushort PT_Read(ushort addr);
+
+
 void PhysMemWrite(ushort value, ulong addr);
 ushort PhysMemRead(ulong addr);
 void MemoryWrite(ushort value, ushort addr, bool is_P_relative, unsigned char byte_select);
@@ -250,7 +250,7 @@ void device_interrupt(ushort interruptBits);
 void illegal_instr(ushort operand);
 void unimplemented_instr(ushort operand);
 void prefetch();
-void cpu_thread(void);
+void cpu_start(void);
 void mopc_thread();
 
 void Instruction_Add(int start, int stop, void *funcpointer);

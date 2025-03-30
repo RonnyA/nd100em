@@ -4,6 +4,7 @@
  * Copyright (c) 2006 Per-Olof Astrom
  * Copyright (c) 2006-2008 Roger Abrahamsson
  * Copyright (c) 2008 Zdravko
+ * Copyright (c) 2025 Ronny Hansen
  *
  * This file is originated from the nd100em project.
  *
@@ -38,6 +39,8 @@
 #include "nd100.h"
 #include "cpu.h"
 #include "iox/panel.h"
+#include "cpu_mms.h"
+#include <setjmp.h>
 
 #define BUFSTRSIZE 24
 
@@ -53,6 +56,9 @@ struct rusage *used;
 /* temporary string for misc data, basically a junk variable */
 /* used by different trace stuff before sending off to tracing */
 char trace_temp_str[256];
+
+// Used for TRAP handling to exit an instruction that fails
+jmp_buf cpu_jmp_buf; 
 
 /* OpToStr
  * IN: pointer to string ,raw operand
@@ -875,6 +881,11 @@ bool CheckPriv()
 		return true;
 
 	// Failed, not allowed to execute
+
+	// Move to next instruction
+	gPC++;
+
+	// Generate a privileged instruction interrupt
 	interrupt(14, 1 << 6); // Privileged instruction
 	return false;
 }
@@ -904,11 +915,7 @@ unsigned int calcEL(short operand)
 /// </summary>
 void ndfunc_ldatx(ushort operand)
 {
-	if (!CheckPriv())
-	{
-		gPC++;
-		return;
-	}
+	if (!CheckPriv()) return;
 
 	unsigned int EL = calcEL(operand);
 	gA = PhysMemRead(EL);
@@ -929,11 +936,7 @@ void ndfunc_ldatx(ushort operand)
 /// </summary>
 void ndfunc_ldxtx(ushort operand)
 {
-	if (!CheckPriv())
-	{
-		gPC++;
-		return;
-	}
+	if (!CheckPriv()) return;
 
 	unsigned int EL = calcEL(operand);
 	gX = PhysMemRead(EL);
@@ -955,11 +958,7 @@ void ndfunc_ldxtx(ushort operand)
 void ndfunc_lddtx(ushort operand)
 {
 
-	if (!CheckPriv())
-	{
-		gPC++;
-		return;
-	}
+	if (!CheckPriv()) return;
 
 	unsigned int EL = calcEL(operand);
 	gA = PhysMemRead(EL);
@@ -984,11 +983,7 @@ void ndfunc_lddtx(ushort operand)
 void ndfunc_ldbtx(ushort operand)
 {
 
-	if (!CheckPriv())
-	{
-		gPC++;
-		return;
-	}
+	if (!CheckPriv()) return;
 
 	unsigned int EL = calcEL(operand);
 	ushort temp;
@@ -1217,18 +1212,24 @@ void ndfunc_versn(ushort operand)
 
 /* IOT
  * This is really an ND1 instruction
+ * NOTE:: Privileged instructions
  */
 void ndfunc_iot(ushort operand)
 {
+	// ND110 Microcode:
+	// IOT - INSTRUCTION IS PRIVILEGED WHEN RING = 0 OR 1
+	//                  AND ILLEGAL    WHEN RING = 2 OR 3
+	if (!CheckPriv()) return;
+
 	/* for now handle it as illegal instruction */
 	illegal_instr(operand);
 }
 
-/* IOX
+/* IOX (Privileged)
  */
 void ndfunc_iox(ushort operand)
 {
-
+	if (!CheckPriv()) return;
 	if (trace)
 		trace_pre(1, "A", (int)gA);
 	io_op(operand & 0x07ff);
@@ -1245,10 +1246,12 @@ void ndfunc_iox(ushort operand)
 	}
 }
 
-/* IOXT
+/* IOXT (Privileged)
  */
 void ndfunc_ioxt(ushort operand)
 {
+	if (!CheckPriv()) return;
+
 	if (trace)
 		trace_pre(2, "A", (int)gA, "T", (int)gT);
 	io_op(gT);
@@ -1265,28 +1268,68 @@ void ndfunc_ioxt(ushort operand)
 	}
 }
 
-/* SETPT
+/* SETPT - ND110+
+ *
+ * NOTE: Privileged instruction
  */
 void ndfunc_setpt(ushort operand)
 {
+	if (!CheckPriv()) return;
 	/* STUB FUNCTION - TODO */
+
 	CurrentCPURunMode = STOP; /* OK unimplemented function, lets stop CPU and end program that way */
 	gPC++;
+
+/* ND110 Microcode:
+9217  004054  %        OPCODE 140300 : SETPT 4 
+9218  004054  %
+9219  004054  % SETPT: JXZ * 10               % FINISHED 
+9220  004054  %        LDDTX 20 
+9221  004054  %        BSET ZRO 130 DA        % PGU-BIT 
+9222  004054  %        LDBTX 10
+9223  004054  %        177777                 % OLD BUG IN LDBTX 
+9224  004054  %        STD ,B                 % ALWAYS INSIDE PAGE TABLE 
+9225  004054  %        LDXTX 00 
+9226  004054  %        JMP *—7 	
+*/
 }
 
-/* CLEPT
+/* CLEPT - ND110+
+ *
+ * NOTE: Privileged instruction
  */
 void ndfunc_clept(ushort operand)
 {
+	if (!CheckPriv()) return;
+
 	/* TODO: Checks for if we implement it or not in current CPUTYPE, priv checks, etc... */
 	DoCLEPT();
 	gPC++;
+
+/* ND110 Microcode:
+9229  004054  %        OPCODE 140301 I CLEPT
+9230  004054  %
+9231  004054  % CLEPT: JXZ * 11               % FINISHED
+9232  004054  %        LDBTX 10
+9233  004054  %        177777                 % OLD BUG IN LDBTX
+9234  004054  %        LDA ,B
+9235  004054  %        JAZ * 3
+9236  004054  %        STATX 20
+9237  004054  %        STZ ,B                 % ALWAYS INSIDE PAGE TABLE
+9238  004054  %        LDXTX 00
+9239  004054  %        JMP *-10
+9240  004054  %*
+*/	
 }
 
 /* IDENT
+ *
+ * NOTE: Privileged instruction
  */
 void ndfunc_ident(ushort operand)
 {
+	if (!CheckPriv()) return;
+
 	switch ((operand & 0x003f))
 	{
 	case 004:
@@ -1310,10 +1353,12 @@ void ndfunc_ident(ushort operand)
 	}
 }
 
-/* OPCOM
+/* OPCOM (Privileged)
  */
 void ndfunc_opcom(ushort operand)
 {
+	if (!CheckPriv()) return;
+
 	MODE_OPCOM = 1;
 	gPC++;
 }
@@ -1340,6 +1385,7 @@ void ndfunc_ion(ushort operand)
 void ndfunc_irw(ushort operand)
 {
 	ushort dr, temp;
+	if (!CheckPriv()) return;
 
 	temp = ((operand & 0x0078) >> 3);
 	dr = (operand & 0x0007);
@@ -1356,17 +1402,21 @@ void ndfunc_irw(ushort operand)
  */
 void ndfunc_irr(ushort operand)
 {
+	if (!CheckPriv()) return;
+
 	gA = gReg->reg[((operand & 0x0078) >> 3)][(operand & 0x0007)];
 	if ((operand & 0x0007) == 0) /* clear top 8 bits as STS reg read */
 		gA &= 0x00FF;
 	gPC++;
 }
 
-/* EXAM
+/* EXAM (Privileged)
  */
 void ndfunc_exam(ushort operand)
 {
 	unsigned int fulladdress;
+
+	if (!CheckPriv()) return;
 
 	fulladdress = (((unsigned int)gA) << 16) | (ushort)gD;
 	gT = PhysMemRead(fulladdress);
@@ -1374,11 +1424,13 @@ void ndfunc_exam(ushort operand)
 	gPC++;
 }
 
-/* DEPO
+/* DEPO (Privileged)
  */
 void ndfunc_depo(ushort operand)
 {
 	unsigned int fulladdress;
+
+	if (!CheckPriv()) return;
 
 	fulladdress = (((unsigned int)gA) << 16) | (ushort)gD;
 	PhysMemWrite(gT, fulladdress);
@@ -1386,18 +1438,22 @@ void ndfunc_depo(ushort operand)
 	gPC++;
 }
 
-/* POF
+/* POF (Privileged)
  */
 void ndfunc_pof(ushort operand)
 {
+	if (!CheckPriv()) return;
+
 	setbit_STS_MSB(_PONI, 0);
 	gPC++;
 }
 
-/* PIOF
+/* PIOF (Privileged)	
  */
 void ndfunc_piof(ushort operand)
 {
+	if (!CheckPriv()) return;
+
 	setbit_STS_MSB(_IONI, 0);
 	//: TODO: Check if there are higher levels pending!
 	setbit_STS_MSB(_PONI, 0);
@@ -1421,18 +1477,22 @@ void ndfunc_pion(ushort operand)
 	gPC++;
 }
 
-/* REX
+/* REX (Privileged)
  */
 void ndfunc_rex(ushort operand)
 {
+	if (!CheckPriv()) return;
+
 	setbit_STS_MSB(_SEXI, 0);
 	gPC++;
 }
 
-/* SEX
+/* SEX (Privileged)
  */
 void ndfunc_sex(ushort operand)
 {
+	if (!CheckPriv()) return;
+
 	setbit_STS_MSB(_SEXI, 1);
 	gPC++;
 }
@@ -1598,19 +1658,23 @@ void ndfunc_dnz(ushort operand)
 		trace_post(3, "T", (int)gT, "A", (int)gA, "D", (int)gD);
 }
 
-/* SRB
+/* SRB (Privileged)
  */
 void ndfunc_srb(ushort operand)
 {
+	if (!CheckPriv()) return;
+
 	/* SRB */ /* NOTE: These two seems to have bit req on 0-2 as well */
 	gPC++;	  /* NOTE: We count up PC BEFORE as this is indicated by manual */
 	DoSRB(operand);
 }
 
-/* LRB
+/* LRB (Privileged)
  */
 void ndfunc_lrb(ushort operand)
 {
+	if (!CheckPriv()) return;
+
 	/* SRB */ /* NOTE: These two seems to have bit req on 0-2 as well */
 	gPC++;	  /* NOTE: We count up PC BEFORE as this is indicated by manual */
 	DoLRB(operand);
@@ -2217,12 +2281,12 @@ ushort New_GetEffectiveAddr(ushort instr, bool *use_apt)
 		break;
 	case 2: /* ((P) + disp) */
 		eff_addr = gPC + disp;
-		eff_addr = MemoryRead(eff_addr, false);
+		eff_addr = ReadIndirectVirtualMemory(eff_addr, false);
 		*use_apt = true;
 		break;
 	case 3: /* ((B) + disp) */
 		eff_addr = gB + disp;
-		eff_addr = MemoryRead(eff_addr, true);
+		eff_addr = ReadIndirectVirtualMemory(eff_addr, true);
 		*use_apt = true;
 		break;
 	case 4: /* (X) + disp */
@@ -2235,12 +2299,12 @@ ushort New_GetEffectiveAddr(ushort instr, bool *use_apt)
 		break;
 	case 6: /* ((P) + disp) + (X) */
 		eff_addr = gPC + disp;
-		eff_addr = gX + MemoryRead(eff_addr, false);
+		eff_addr = gX + ReadIndirectVirtualMemory(eff_addr, false);
 		*use_apt = true;
 		break;
 	case 7: /* ((B) + disp) + (X) */
 		eff_addr = gB + disp;
-		eff_addr = gX + MemoryRead(eff_addr, true);
+		eff_addr = gX + ReadIndirectVirtualMemory(eff_addr, true);
 		*use_apt = true;
 		break;
 	}
@@ -2254,9 +2318,12 @@ ushort New_GetEffectiveAddr(ushort instr, bool *use_apt)
  *  <IR> = <IR> & (~A)
  *
  * NOTE:: STS need to be checked.
+ * NOTE:: Privileged instructions
  */
 void DoMCL(ushort instr)
 {
+	if (!CheckPriv()) return;
+
 	int s;
 	switch (instr & 0x0F)
 	{
@@ -2304,9 +2371,12 @@ void DoMCL(ushort instr)
  *  <IR> = <IR> | (A)
  *
  * NOTE:: STS need to be checked.
+ * NOTE:: Privileged instructions
  */
 void DoMST(ushort instr)
 {
+	if (!CheckPriv()) return;
+
 	int s;
 	switch (instr & 0x0F)
 	{
@@ -2399,9 +2469,13 @@ void DoCLEPT()
  * DoTRA - Transfer to register
  *  Affected: Accumulator
  *  A = <IR>;
+ *
+ * NOTE: Privileged instructions
  */
 void DoTRA(ushort instr)
 {
+	if (!CheckPriv()) return;
+
 	int s;
 	ushort temp, level;
 	ushort i;
@@ -2481,10 +2555,14 @@ void DoTRA(ushort instr)
 	case 013:
 		gA = gPES;
 		break;
-	case 014: /* PCR */
+	case 014: /* PGC/PCR - Paging Control Register */
 		temp = gA;
 		level = (temp >> 3) & 0x0f;
-		gA = gReg->reg_PCR[level] & 0x0783; /* Mask out so we only get PT, APT, RING as per Manual*/
+		gA = gReg->reg_PCR[level];
+		if (mmsType == MMS1)
+		{
+			gA &= ~(1 << 2); // Clear bit 2 for MMS1 mode
+		}
 		break;
 	case 015:
 		gA = gPEA;
@@ -2536,10 +2614,13 @@ void DoEXR(ushort instr)
 /*
  * DoWAIT - Give up prio instruction
  * NOTE:: Only basic parts fixed yet, this is a fairly complex one
- * Also no privilege checks are done as of yet.
+ * 
+ * NOTE:: Privileged instructions
  */
 void DoWAIT(ushort instr)
 {
+	if (!CheckPriv()) return;
+
 	int s;
 	ushort temp;
 	if (!STS_IONI)
@@ -2561,15 +2642,32 @@ void DoWAIT(ushort instr)
 	}
 }
 
+/* LWCS (Privileged)
+*/
+void ndfunc_lwcs(ushort instr)
+{
+	// LWCS is a no-operation on the ND-110
+	// The ND-110 is software compatible but nor microcode compatible and writing to the writable control store has no meaning in the ND-110.
+	// A no-operation is executed so that programs written for the ND-100 and NORD-10 can continue
+
+	if (!CheckPriv()) return;
+
+	gPC++;
+}
+
 /*
  * DoTRR - Transfer to register
  *  Affected: Internal register specified
  *  <IR> = A;
  *
  * NOTE: STS and PCR NOT fixed yet!!!
+ *
+ * NOTE: Privileged instructions
  */
 void DoTRR(ushort instr)
 {
+	if (!CheckPriv()) return;
+
 	int s;
 	ushort temp, level;
 	if (trace)
@@ -2599,10 +2697,15 @@ void DoTRR(ushort instr)
 		if (debug)
 			fprintf(debugfile, "TRR LMP: %06o => LMP\n", gA);
 		break;
-	case 03:
+	case 03: /* PGC/PCR - Paging Control Register */
 		temp = gA;
 		level = (temp >> 3) & 0x0f;
-		gReg->reg_PCR[level] = temp & 0x0783; /* Mask out so we only get PT, APT, RING as per Manual*/
+		if (mmsType == MMS1)
+		{
+			temp &= ~(1 << 2); // Force Clear bit 2 for MMS1 mode
+		}
+		gReg->reg_PCR[level] = temp;
+
 		if (trace)
 			trace_step(1, "PCR(%d)<=A", level);
 		break;
@@ -3094,10 +3197,10 @@ void DoTSET(ushort instr)
 /// Format: MOVEW
 /// </summary>
 void DoMOVEW(ushort instr)
-{	
+{
 	ushort cnt = (ushort)gL;
 	if (cnt > 2048)
-	{	
+	{
 		gPC++;
 		return;
 	} // Failsafe ..?!
@@ -3107,6 +3210,8 @@ void DoMOVEW(ushort instr)
 
 	ushort displacement = (instr & 0x00F);
 
+
+	// Check if source and destination are in physical memory
 	bool isSourcePhysical = false;
 	bool isDestinationPhysical = false;
 
@@ -3131,11 +3236,18 @@ void DoMOVEW(ushort instr)
 		isSourcePhysical = true;
 		break;
 	}
+	
+	// Check for priveleged instruction	
+	if (isSourcePhysical || isDestinationPhysical)
+	{
+		if (!CheckPriv()) return;
+	}
+
 
 	// Warning: In the loop of read/write below, PageFault can occur, and the instruction can be restarted.
 	ushort temp = 0;
 
-	//printf("DoMOVEW: [%d] cnt=%d sourceAddress=%o destinationAddress=%o\n",displacement,cnt,sourceAddress,destinationAddress);
+	// printf("DoMOVEW: [%d] cnt=%d sourceAddress=%o destinationAddress=%o\n",displacement,cnt,sourceAddress,destinationAddress);
 
 	while (cnt > 0)
 	{
@@ -3151,7 +3263,7 @@ void DoMOVEW(ushort instr)
 			break;
 		case 2: // move from PT to physical memory
 			temp = MemoryRead(sourceAddress, false);
-			PhysMemWrite(temp,destinationAddress);
+			PhysMemWrite(temp, destinationAddress);
 			break;
 		case 3: // move from APT to PT
 			temp = (ushort)MemoryRead(sourceAddress, true);
@@ -3163,7 +3275,7 @@ void DoMOVEW(ushort instr)
 			break;
 		case 5: // move from APT to physical memory
 			temp = (ushort)MemoryRead(sourceAddress, true);
-			PhysMemWrite(temp,destinationAddress);
+			PhysMemWrite(temp, destinationAddress);
 			break;
 		case 6: // move from physical memory to PT
 			temp = PhysMemRead(sourceAddress);
@@ -3176,7 +3288,7 @@ void DoMOVEW(ushort instr)
 
 		case 8: // move from physical memory to physical memory
 			temp = PhysMemRead(sourceAddress);
-			PhysMemWrite(temp,destinationAddress);
+			PhysMemWrite(temp, destinationAddress);
 			break;
 
 		default:
@@ -3841,6 +3953,12 @@ void interrupt(ushort lvl, ushort sub)
 		gPID |= (1 << lvl);
 	}
 	checkPK();
+
+	// Check for MPV (bit 2), PF (bit 3), or illegal instruction (bit 4)
+	if (lvl == 14 && (sub & ((1 << 2) | (1 << 3) | (1 << 4))))
+	{
+		longjmp(cpu_jmp_buf, 1); // Jump back to cpurun() in cpu_thread
+	}
 }
 
 void device_interrupt(ushort interruptBits)
@@ -3862,6 +3980,7 @@ void device_interrupt(ushort interruptBits)
 	}
 }
 
+#if _removed_ // PageTables are now handled in cpu_mms.c
 /*
  * Check if access is to the PageTables in shadow memory
  *
@@ -3947,11 +4066,16 @@ ushort PT_Read(ushort addr)
 	return (res); /* PT data */
 }
 
+#endif // _removed_
 /*
  * Routine that handles phys mem writes and shadow memory.
  */
 void PhysMemWrite(ushort value, ulong addr)
 {
+	WritePhysicalMemory(addr, value, false); // in cpu_mms.c
+	return;
+
+#if _removed_
 	ushort *p_phy_addr;
 	if (IsShadowMemAccess(addr))
 	{									  /* Write to PageTables!!! */
@@ -3971,6 +4095,7 @@ void PhysMemWrite(ushort value, ulong addr)
 
 	p_phy_addr = &VolatileMemory.n_Array[addr];
 	*p_phy_addr = value;
+#endif
 }
 
 /*
@@ -3978,6 +4103,9 @@ void PhysMemWrite(ushort value, ulong addr)
  */
 ushort PhysMemRead(ulong addr)
 {
+	return ReadPhysicalMemory(addr, false); // in cpu_mms.c
+
+#if _removed_
 	ushort res;
 	if (IsShadowMemAccess(addr))
 	{ /* Read from PageTables!!! */
@@ -3997,6 +4125,7 @@ ushort PhysMemRead(ulong addr)
 	// addr &= (ND_Memsize); /* Mask it to the memory size we have to prevent coredumps :) */
 
 	return VolatileMemory.n_Array[addr];
+#endif
 }
 
 /*
@@ -4005,6 +4134,10 @@ ushort PhysMemRead(ulong addr)
  */
 void MemoryWrite(ushort value, ushort addr, bool UseAPT, unsigned char byte_select)
 {
+	WriteVirtualMemory(addr, value, UseAPT, byte_select); // in cpu_mms.c
+	return;
+
+#if _removed_
 	ushort pcr = gReg->reg_PCR[CurrLEVEL];
 	unsigned char ring_num = pcr & 0x03;
 	unsigned char vpn = addr >> 10;
@@ -4114,6 +4247,7 @@ void MemoryWrite(ushort value, ushort addr, bool UseAPT, unsigned char byte_sele
 		*p_phy_addr = value;
 		break;
 	}
+#endif
 }
 
 /*
@@ -4122,6 +4256,9 @@ void MemoryWrite(ushort value, ushort addr, bool UseAPT, unsigned char byte_sele
  */
 ushort MemoryRead(ushort addr, bool UseAPT)
 {
+	return ReadVirtualMemory(addr, UseAPT); // in cpu_mms.c
+
+#if _removed_
 	ushort pcr = gReg->reg_PCR[CurrLEVEL];
 	unsigned char ring_num = pcr & 0x03;
 	ulong PTe;
@@ -4171,7 +4308,7 @@ ushort MemoryRead(ushort addr, bool UseAPT)
 						"#m (i,t,a) #v# (\"%d\",\"Read Fail(RPM)\",\"%08o\");\n",
 						(int)instr_counter, addr);
 			return (0); /* TODO:: We should rethink MemoryRead to handle errors more gracefully. */
-			//			error=true;
+						//			error=true;
 		}
 
 		/* Check if ring number is too low */
@@ -4186,7 +4323,7 @@ ushort MemoryRead(ushort addr, bool UseAPT)
 						"#m (i,t,a) #v# (\"%d\",\"Read Fail(Ring)\",\"%08o\");\n",
 						(int)instr_counter, addr);
 			return (0); /* TODO:: We should rethink MemoryRead to handle errors more gracefully. */
-			//			error=true;
+						//			error=true;
 		}
 
 		//		if (error) return;
@@ -4214,10 +4351,14 @@ ushort MemoryRead(ushort addr, bool UseAPT)
 					(int)instr_counter, addr);
 		return VolatileMemory.n_Array[addr]; /* Only 16 address bits in POF mode */
 	}
+#endif
 }
 
 ushort MemoryFetch(ushort addr, bool UseAPT)
 {
+	return FetchVirtualMemory(addr, UseAPT); // in cpu_mms.c
+
+#if _removed_
 	ushort pcr = gReg->reg_PCR[CurrLEVEL];
 	unsigned char ring_num = pcr & 0x03;
 	ulong PTe;
@@ -4261,7 +4402,7 @@ ushort MemoryFetch(ushort addr, bool UseAPT)
 						"#m (i,t,a) #v# (\"%d\",\"Fetch Fail(FPM)\",\"%08o\");\n",
 						(int)instr_counter, addr);
 			return (0); /* TODO:: We should rethink MemoryFetch to handle errors more gracefully. */
-			//			error = true;
+						//			error = true;
 		}
 
 		/* Check if ring number is too low */
@@ -4275,7 +4416,7 @@ ushort MemoryFetch(ushort addr, bool UseAPT)
 						"#m (i,t,a) #v# (\"%d\",\"Fetch Fail(Ring)\",\"%08o\");\n",
 						(int)instr_counter, addr);
 			return (0); /* TODO:: We should rethink MemoryFetch to handle errors more gracefully. */
-			//			error = true;
+						//			error = true;
 		}
 
 		//		if (error) return;
@@ -4303,8 +4444,10 @@ ushort MemoryFetch(ushort addr, bool UseAPT)
 					(int)instr_counter, addr);
 		return VolatileMemory.n_Array[addr]; /* Only 16 address bits in POF mode */
 	}
+#endif
 }
 
+#if _removed_ // was used by DMA r/w
 uint32_t MemoryReadPhysical(ulong addr)
 {
 	// return -1 if outside of memory
@@ -4327,6 +4470,9 @@ uint32_t MemoryWritePhysical(ulong addr, uint32_t value)
 	VolatileMemory.n_Array[addr] = value;
 	return 0;
 }
+#endif
+
+/// @brief Run the CPU instructions as long as the CPU is not stopped or shutdown
 void cpurun()
 {
 	int s;
@@ -4384,25 +4530,59 @@ void cpurun()
 	}
 }
 
-void cpu_thread()
+/// @brief Start the CPU
+/// @return Returns when the CPU is shut down
+void cpu_start()
 {
+
 	int s;
 	if (debug)
 		fprintf(debugfile, "(##)cpu_thread running...\n");
 	if (debug)
 		fflush(debugfile);
-
-	Setup_Instructions(); /* OK lets set up the parsing for our current cpu before we start it. */
+	
 	if (DISASM)
 		disasm_setlbl(gPC);
+
+	uint savePC = gPC;
+	// Set up longjmp target once outside the loop
+	if (setjmp(cpu_jmp_buf) != 0)
+	{
+		// We had an interrupt (MPV, PF, or illegal instruction)
+		// PGS bit 15 indicates if fault was during fetch (1) or data cycle (0)
+
+		// PGS:
+		//
+		// if bit 15 is a one, the page fault or protection violation occurred during the fetch of an instruction.
+		// In this case, the P register has not been incremented and the instruction causing the violation(and the restart point)
+		//
+		// If bit 15 is zero, the page fault or protection violation occurred during the data cycles of an instruction.
+		// In this case, the P register points to the instruction after the instruction causing the internal hardware status interrupt.
+		// When the cause of the internal hardware status interrupt has been removed, the restart point will be found by subtracting one from the P register.
+
+		if ((gPGS & (1 << 15)) == 0)
+		{
+			// Data cycle fault - PC need to point to next instruction
+			gPC = savePC + 1;
+		}
+		else
+		{
+			gPC = savePC;
+		}
+		//printf("CPU: Interrupt handler returned, PC=%04x, PGS=%04x\n", gPC, gPGS);
+	}
 
 	while (CurrentCPURunMode != SHUTDOWN)
 	{
 		if (CurrentCPURunMode != STOP)
+		{
+			savePC = gPC;
 			cpurun();
+		}
 
 		if (CurrentCPURunMode == STOP)
 		{
+			// OPCOM MODE ?
 			printf("CPU: WAS STOPPED, SHUTTING DOWN\r\n");
 			CurrentCPURunMode = SHUTDOWN;
 		}
@@ -4639,7 +4819,7 @@ void Setup_Instructions()
 	case ND110CE: /* Should become a NOOOP on these */
 	case ND110CX:
 	case ND110PCX:
-		Instruction_Add(0143500, 0143500, &unimplemented_instr); /* LWCS */
+		Instruction_Add(0143500, 0143500, &ndfunc_lwcs); /* LWCS */
 		break;
 	default:
 		Instruction_Add(0143500, 0143500, &unimplemented_instr); /* LWCS */
