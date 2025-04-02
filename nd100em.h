@@ -61,6 +61,7 @@ extern void disasm_init();
 extern void disasm_dump();
 extern void setup_pap();
 extern void cpu_start();
+extern void cleanup_cpu(void);
 
 int main(int argc, char *argv[]);
 

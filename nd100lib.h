@@ -102,5 +102,6 @@ void start_threads(void);
 void stop_threads(void);
 void setup_cpu(void);
 void program_load(void);
+void cleanup_cpu(void);
 
 #endif // ND_100_LIB_H
