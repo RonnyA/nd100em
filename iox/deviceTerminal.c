@@ -107,15 +107,15 @@ static void Terminal_Reset(Device *self)
     // Clear input status and make device active
     data->inputStatus.raw = 0;
     data->inputStatus.bits.deviceActivated = true;
-    data->inputStatus.bits.dataAvailable = false;
+    data->inputStatus.bits.deviceReadyForTransfer = false;
 
     // Clear output status
     data->outputStatus.raw = 0;
     data->outputStatus.bits.readyForTransfer = true;
 
     // Clear other
-    //data->noCarrier = false;
-    //data->uartInputBuf = 0;    
+    // data->noCarrier = false;
+    // data->uartInputBuf = 0;
 }
 
 static uint16_t Terminal_Tick(Device *self)
@@ -130,62 +130,57 @@ static uint16_t Terminal_Tick(Device *self)
     // Process I/O delays
     Device_TickIODelay(self);
 
-    
     // Check for new incoming characters
-    
-    //if (data->uartInputBuf == 0)    
+
+    data->checkInputQueueTick++;
+    if (data->checkInputQueueTick > MAX_TICKS)
     {
-        data->checkInputQueueTick++;
-        if (data->checkInputQueueTick > MAX_TICKS)
+        data->checkInputQueueTick = 0;
+
+        if ((data->inputQueue.count > 0) &&
+            (!data->inputStatus.bits.deviceReadyForTransfer) &&
+            (data->outputStatus.bits.readyForTransfer))
         {
-            data->checkInputQueueTick = 0;
 
-            if ((data->inputQueue.count > 0) &&
-                (!data->inputStatus.bits.dataAvailable) &&
-                (data->outputStatus.bits.readyForTransfer))
+            uint16_t value = data->inputQueue.buffer[data->inputQueue.head];
+            data->inputQueue.head = (data->inputQueue.head + 1) % TERMINAL_QUEUE_SIZE;
+            data->inputQueue.count--;
+
+            // Process character based on length
+            switch (data->inputControl.bits.characterLength) // 0=8, 1=7, 2=6, 3=5)
             {
-                
-                uint16_t value = data->inputQueue.buffer[data->inputQueue.head];
-                data->inputQueue.head = (data->inputQueue.head + 1) % TERMINAL_QUEUE_SIZE;
-                data->inputQueue.count--;
-
-
-                // Process character based on length
-                switch (data->inputControl.bits.characterLength) // 0=8, 1=7, 2=6, 3=5)
+            case 0: // 8 bits
+                value &= 0xFF;
+                if (Device_GetOddParity(value) == 1)
                 {
-                case 0: // 8 bits
-                    value &= 0xFF;
+                    value |= (1 << 7);
+                }
+                break;
+
+            case 1: // 7 bits
+                value &= 0x7F;
+                if (data->inputControl.bits.parityGeneration)
+                {
                     if (Device_GetOddParity(value) == 1)
                     {
                         value |= (1 << 7);
                     }
-                    break;
-
-                case 1: // 7 bits
-                    value &= 0x7F;
-                    if (data->inputControl.bits.parityGeneration)
-                    {
-                        if (Device_GetOddParity(value) == 1)
-                        {
-                            value |= (1 << 7);
-                        }
-                    }
-                    break;
-
-                case 2: // 6 bits
-                    value &= 0x3F;
-                    break;
-
-                case 3: // 5 bits
-                    value &= 0x1F;
-                    break;
                 }
+                break;
 
-                //printf("Terminal_Tick: %c, value: %o interruptEnabled: %d\n", (char)value, value, data->inputStatus.bits.interruptEnabled);
-                data->uartInputBuf = value;
-                data->inputStatus.bits.dataAvailable = true;
-                Device_SetInterruptStatus(self, data->inputStatus.bits.interruptEnabled && data->inputStatus.bits.dataAvailable, 12);
+            case 2: // 6 bits
+                value &= 0x3F;
+                break;
+
+            case 3: // 5 bits
+                value &= 0x1F;
+                break;
             }
+
+            // printf("Terminal_Tick: %c, value: %o interruptEnabled: %d\n", (char)value, value, data->inputStatus.bits.interruptEnabled);
+            data->uartInputBuf = value;
+            data->inputStatus.bits.deviceReadyForTransfer = true;
+            Device_SetInterruptStatus(self, data->inputStatus.bits.interruptEnabled && data->inputStatus.bits.deviceReadyForTransfer, 12);
         }
     }
 
@@ -203,18 +198,14 @@ static uint16_t Terminal_Read(Device *self, uint32_t address)
 
     switch (reg)
     {
-    case TERMINAL_READ_INPUT_DATA:    
+    case TERMINAL_READ_INPUT_DATA:
         value = data->uartInputBuf;
-        
-        if (value != 0)
-        {
-            data->uartInputBuf = 0;
-            data->inputStatus.bits.dataAvailable = false;
 
-            Device_SetInterruptStatus(self, data->inputStatus.bits.interruptEnabled && data->inputStatus.bits.dataAvailable, 12);   
-        }
+        data->uartInputBuf = 0;
+        data->inputStatus.bits.deviceReadyForTransfer = false;
 
-        
+        Device_SetInterruptStatus(self, data->inputStatus.bits.interruptEnabled && data->inputStatus.bits.deviceReadyForTransfer, 12);
+
         break;
 
     case TERMINAL_READ_INPUT_STATUS:
@@ -225,11 +216,11 @@ static uint16_t Terminal_Read(Device *self, uint32_t address)
         value = 0;
         break;
 
-    case TERMINAL_READ_OUTPUT_STATUS:             
-        value = data->outputStatus.raw;        
+    case TERMINAL_READ_OUTPUT_STATUS:
+        value = data->outputStatus.raw;
         break;
     default:
-        printf("Unexpected: Terminal Read from address: %o value: %o\n", address, value);
+        //printf("Unexpected: Terminal Read from address: %o value: %o\n", address, value);
         break;
     }
 
@@ -265,7 +256,7 @@ static void Terminal_Write(Device *self, uint32_t address, uint16_t value)
         break;
 
     case TERMINAL_WRITE_INPUT_CONTROL:
-    
+
         // make a copy of the control word
         data->inputControl.raw = value;
 
@@ -274,22 +265,20 @@ static void Terminal_Write(Device *self, uint32_t address, uint16_t value)
         data->inputStatus.bits.deviceActivated = data->inputControl.bits.deviceActivated;
 
         // Trigger interrupt ?
-        Device_SetInterruptStatus(self, data->inputStatus.bits.interruptEnabled && data->inputStatus.bits.dataAvailable, 12);
-
-
+        Device_SetInterruptStatus(self, data->inputStatus.bits.interruptEnabled && data->inputStatus.bits.deviceReadyForTransfer, 12);
 
         if (data->inputControl.bits.deviceClear)
         {
             // Device clear
-            //printf("Device clear\n");
+            // printf("Device clear\n");
 
             // Clear input status
-            data->inputStatus.raw = 0;            
+            data->inputStatus.raw = 0;
             data->inputStatus.bits.deviceActivated = true;
 
             // Clear output status
             data->outputStatus.raw = 0;
-            data->outputStatus.bits.readyForTransfer = true;        
+            data->outputStatus.bits.readyForTransfer = true;
         }
 
         // Clear errors
@@ -303,14 +292,16 @@ static void Terminal_Write(Device *self, uint32_t address, uint16_t value)
         if (value == 0)
             break;
 
-        char c = (char)(value & 0x7F);        
+        char c = (char)(value);
+
+        if (data->inputControl.bits.characterLength != 0)
+            c &= 0x7F;
 
         // Clear interrupt status
-        //data->outputStatus.bits.readyForTransfer = false;
+        data->outputStatus.bits.readyForTransfer = false;
         Device_SetInterruptStatus(self, data->outputStatus.bits.interruptEnabled && data->outputStatus.bits.readyForTransfer, 10);
 
-        //if (data->inputControl.bits.testMode)
-        if (false)
+        if (data->inputControl.bits.testMode)
         {
             // In test mode, echo the character back with parity
             Terminal_QueueKeyCode(self, c);
@@ -328,7 +319,6 @@ static void Terminal_Write(Device *self, uint32_t address, uint16_t value)
             }
         }
 
-        
         // Simulate transfer delay
         Device_QueueIODelay(self, IODELAY_TERMINAL, WriteEnd, self->identCode, self->interruptLevel);
         break;
@@ -339,9 +329,6 @@ static void Terminal_Write(Device *self, uint32_t address, uint16_t value)
 
         // Update status register
         data->outputStatus.bits.interruptEnabled = data->outputControl.bits.interruptEnabled;
-
-        //printf("outputControl: %o\n", data->outputControl.raw);
-        //printf("outputStatus: %o\n", data->outputStatus.raw);
 
         // Trigger interrupt ?
         Device_SetInterruptStatus(self,
@@ -356,7 +343,6 @@ static uint16_t Terminal_Ident(Device *self, uint16_t level)
     if (!self)
         return 0;
 
-    //printf("Terminal::IDENT called with level %d\n", level);
     if ((self->interruptBits & (1 << level)) != 0)
     {
         TerminalData *data = (TerminalData *)self->deviceData;
@@ -385,7 +371,8 @@ static bool WriteEnd(void *context, int param)
         return false;
 
     data->outputStatus.bits.readyForTransfer = true;
-    
+    data->checkInputQueueTick = 0; // Make sure input check is delayed
+
     Device_SetInterruptStatus(self,
                               data->outputStatus.bits.interruptEnabled && data->outputStatus.bits.readyForTransfer,
                               10);
@@ -415,7 +402,7 @@ void Terminal_QueueKeyCode(Device *self, uint8_t keycode)
     data->inputQueue.tail = (data->inputQueue.tail + 1) % TERMINAL_QUEUE_SIZE;
     data->inputQueue.count++;
 
-    //printf("Terminal_QueueKeyCode: %c, count: %ld IRQ[%d]\n", (char)keycode, data->inputQueue.count, data->inputStatus.bits.interruptEnabled);
+    // printf("Terminal_QueueKeyCode: %c, count: %ld IRQ[%d]\n", (char)keycode, data->inputQueue.count, data->inputStatus.bits.interruptEnabled);
 }
 
 Device *CreateTerminalDevice(uint8_t thumbwheel)

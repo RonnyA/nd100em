@@ -51,17 +51,17 @@ typedef enum {
 typedef union {
     uint16_t raw;
     struct {
-        uint16_t interruptEnabled : 1;     // Bit 0: Data available will give interrupt
-        uint16_t reserved1 : 1;            // Bit 1: Not used
-        uint16_t deviceActivated : 1;      // Bit 2: Device is activated
-        uint16_t dataAvailable : 1;        // Bit 3: Data is available (also known as 'ReadyForTransfer')
-        uint16_t errorOr : 1;              // Bit 4: Inclusive or of error bits 5-7
-        uint16_t framingError : 1;         // Bit 5: Framing error
-        uint16_t parityError : 1;          // Bit 6: Parity error
-        uint16_t overrunError : 1;         // Bit 7: Overrun
-        uint16_t reserved2 : 3;            // Bits 8-10: Not used
-        uint16_t carrierMissing : 1;       // Bit 11: Carrier missing
-        uint16_t reserved3 : 4;            // Bits 12-15: Not used
+        uint16_t interruptEnabled : 1;         // Bit 0: Data available will give interrupt
+        uint16_t reserved1 : 1;                // Bit 1: Not used
+        uint16_t deviceActivated : 1;          // Bit 2: Device is activated
+        uint16_t deviceReadyForTransfer : 1;   // Bit 3: Data is available
+        uint16_t errorOr : 1;                  // Bit 4: Inclusive or of error bits 5-7
+        uint16_t framingError : 1;             // Bit 5: Framing error
+        uint16_t parityError : 1;              // Bit 6: Parity error
+        uint16_t overrunError : 1;             // Bit 7: Overrun
+        uint16_t reserved2 : 3;                // Bits 8-10: Not used
+        uint16_t carrierMissing : 1;           // Bit 11: Carrier missing
+        uint16_t reserved3 : 4;                // Bits 12-15: Not used
         //Bits 1-2 and 8-15 are always zero.
     } bits;
 } InputStatusRegister;
@@ -78,8 +78,8 @@ typedef union {
         uint16_t deviceClear : 1;          // Bit 4: Device clear
         uint16_t reserved2 : 6;            // Bits 5-10: Not used
         uint16_t characterLength : 2;      // Bits 11-12: Character length (0=8, 1=7, 2=6, 3=5)
-        uint16_t stopBits : 1;             // Bit 13: Stop bits (0=2, 1=1)
-        uint16_t parityGeneration : 1;     // Bit 14: Parity generation
+        uint16_t stopBits : 1;             // Bit 13: Stop bits (0=2 bits, 1=1 bit)
+        uint16_t parityGeneration : 1;     // Bit 14: Parity generation (If this control bit is 0, no parity will bit will be added to the character on the output channel and the received character will not be checked for parity. A 1 in this control bit will add an even parity bit to the character on the output channel, and give an error indication if the received character has an odd parity.)
         uint16_t reserved3 : 1;            // Bit 15: Not used
     } bits;
 } InputControlRegister;
