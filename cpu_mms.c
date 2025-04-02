@@ -80,14 +80,14 @@ static ushort ConvertTo16BitPTE(uint pageTableEntry)
 
 
 // Used for debugging
-#ifdef DEBUG_CPU
-static uint CalcPageTableAddress(PagingTables* pt, uint address)
+#ifdef DEBUG_MMS
+static uint CalcPageTableAddress(uint address)
 {
     uint pageTableAddress;
     if (STS_SEXI)
     {
         // Extended, check if we have MM-1 or MM-II
-        if (pt->mmsType == MMS1)
+        if (pt.mmsType == MMS1)
         {
             // 4 page tables start at 177000 (0xFE00)                    
             pageTableAddress = ((address - SHADOW_RAM_EXTENDED_MODE_4PT) & 0x1FF) >> 1;
@@ -161,12 +161,12 @@ void PT_Write(uint address, ushort value)
     uint offset = address - pt.shadowRamAddress;
     pt.shadowRam[offset] = value;
 
-#ifdef DEBUG_CPU
+#ifdef DEBUG_MMS
     uint pageTableEntry;
-    uint pageTableAddress = CalcPageTableAddress(pt, address);
+    uint pageTableAddress = CalcPageTableAddress(address);
     uint pageTable = pageTableAddress >> 6;
 
-    if (!SEXI)
+    if (!STS_SEXI)
     {
         pageTableEntry = ConvertFrom16BitPTE(value);
     }
@@ -175,17 +175,15 @@ void PT_Write(uint address, ushort value)
         if ((address & 0x01) == 0)
         {
             // Even address
-            pageTableEntry = (uint)(value << 16 | pt->shadowRam[offset + 1]);
+            pageTableEntry = (uint)(value << 16 | pt.shadowRam[offset + 1]);
         }
         else
         {
             // Odd address
-            pageTableEntry = (uint)(pt->shadowRam[offset - 1] << 16 | value);
+            pageTableEntry = (uint)(pt.shadowRam[offset - 1] << 16 | value);
         }
     }
-    printf("PT W A=%o PT=%d VPN=%d SEXI=%d V=%o => 0x%08X (%s)\n", 
-           address, pageTable, pageTableAddress & 0x3F, SEXI, value, 
-           pageTableEntry, GetPageTableEntryDebugInfo(pt, pageTableEntry, SEXI));
+    printf("PT W A=%o PT=%d VPN=%d SEXI=%d V=%o => 0x%08X (%s)\n",  address, pageTable, pageTableAddress & 0x3F, STS_SEXI, value,  pageTableEntry, GetPageTableEntryDebugInfo(pageTableEntry));
 #endif
 }
 
@@ -420,6 +418,10 @@ int mapVirtualToPhysical(uint virtualAddress, AccessMode am, bool UseAPT)
     // Find the PageTableEntry, PTe
     uint32_t pageTableEntry = GetPageTableEntry(pageTable, VPN, ptm);
 
+#ifdef DEBUG_MMS
+    printf("mapVirtualToPhysical - PT=%d VPN=%d => Entry=0x%08X (%s)\n",  pageTable, VPN, pageTableEntry, GetPageTableEntryDebugInfo(pageTableEntry));
+#endif    
+
     // Check for page protection
     if (!checkPageProtection(VPN, pageTable, pageTableEntry, UseAPT, am, virtualAddress))
     {
@@ -450,9 +452,13 @@ int mapVirtualToPhysical(uint virtualAddress, AccessMode am, bool UseAPT)
     // The PCR ring bits should always be greater than or equal to the PT ring bits. If not, an internal interrupt (MPV) will be generated.
 
     if (ring < pageTableRing)
-    {
-        UpdatePGS(pageTable, VPN, am, false);
-        interrupt(14, 1 << 2); // MEMORY_PROTECTION_VIOLATION bit 2        
+    {        
+        UpdatePGS(pageTable, VPN, am, false);                
+#ifdef DEBUG_MMS
+        printf("[%d] Ring Protection Violation. Ring=%d PTRing=%d Accessmode=%d PGS=%06o PT=%d VPN=%d PTe=0x%08X\n", 
+               CurrLEVEL, ring, pageTableRing, am, gReg->reg_PGS, pageTable, VPN, pageTableEntry);
+#endif               
+        HandleMPV(virtualAddress);
         return -1;
     }
 
@@ -522,8 +528,8 @@ int mapVirtualToPhysical(uint virtualAddress, AccessMode am, bool UseAPT)
                 tmpPES |= 1 << 15; // Error during fetch
             }
 
-            gPEA = tmpPEA;
-            gPES = tmpPES;
+            setPEA(tmpPEA);
+            setPES(tmpPES);
 
             interrupt(14, 1 << 8); // PTY - MEMORY_PARITY_ERROR bit 8            
         }
@@ -537,12 +543,16 @@ void UpdatePGS(uint pageTable, uint VPN, AccessMode am, bool permitViolation)
 {
     ushort tmpPGS = (pageTable << 6) | VPN;
 
+    // Permit violation (read, write, fetch protect system)
+    if (permitViolation) tmpPGS |= (1 << 14);
+
+
     if (am & FETCH)
     {
         if (am & READ)
         {
             // READ_FETCH - Indirect read during effective address calculation
-            //printf("PGS update on Indirect read (READ_FETCH) PT=%d VPN=%d Accessmode=%d PGS=%o\n", pageTable, VPN, am, gPGS);
+            //printf("PGS update on Indirect read (READ_FETCH) PT=%d VPN=%d Accessmode=%d PGS<=%o\n", pageTable, VPN, am, tmpPGS);            
         }
         else
         {
@@ -550,8 +560,6 @@ void UpdatePGS(uint pageTable, uint VPN, AccessMode am, bool permitViolation)
         }
     }
 
-    // Permit violation (read, write, fetch protect system)
-    if (permitViolation) tmpPGS |= (1 << 14);
     gPGS =tmpPGS;
 }
 
@@ -694,7 +702,7 @@ void WritePhysicalMemory(int physicalAddress, uint16_t value, bool privileged)
 void WritePhysicalMemoryWM(int physicalAddress, uint16_t value, bool privileged, WriteMode wm)
 {
 
-    if (IsAddressShadowMemory(physicalAddress, false))
+    if (IsAddressShadowMemory(physicalAddress, privileged))
     {
         //printf("WritePhysicalMemoryWM: Shadow Memory 0x[%4X] = 0x%4X\n", physicalAddress, value);
 
@@ -719,12 +727,13 @@ void WritePhysicalMemoryWM(int physicalAddress, uint16_t value, bool privileged,
 
 	switch (wm)
 	{
-	case 0: /* Even, which means MSB byte, or bits 15-8 */
+	case WRITEMODE_MSB: /* Even, which means MSB byte, or bits 15-8 */
 		*p_phy_addr = (*p_phy_addr & 0xFF) | (value << 8);
 		break;
-	case 1: /*Odd, which means LSB byte, or bits 7-0 */
-		*p_phy_addr = (*p_phy_addr & 0xFF00) | value;
+	case WRITEMODE_LSB: /*Odd, which means LSB byte, or bits 7-0 */
+		*p_phy_addr = (*p_phy_addr & 0xFF00) | (value & 0xFF);
 		break;
+    case WRITEMODE_WORD: // full word
 	default:
 		*p_phy_addr = value;
 		break;
@@ -741,8 +750,8 @@ void WritePhysicalMemoryWM(int physicalAddress, uint16_t value, bool privileged,
 // Handle memory out of range error
 void HandleMemoryOutOfRange(uint physicalAddress)
 {
-    gPEA = physicalAddress & 0xFFFF;
-    gPES = (physicalAddress >> 16) & 0xFF;
+    setPEA(physicalAddress & 0xFFFF);
+    setPES((physicalAddress >> 16) & 0xFF);
 
     interrupt(14, 1 << 9); // Memory out of range
 }
