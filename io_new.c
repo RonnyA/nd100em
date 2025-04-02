@@ -31,7 +31,7 @@ Device *terminal;
 
 void IO_Init(void)
 {
-    DeviceManager_Init(LOG_WARNING);
+    DeviceManager_Init(LOG_INFO);
     //DeviceManager_Init(LOG_DEBUG);
     DeviceManager_AddAllDevices();
 
