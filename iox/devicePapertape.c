@@ -82,8 +82,7 @@ static void PaperTape_Write(Device *self, uint32_t address, uint16_t value) {
             data->statusRegister.bits.readActive = data->controlWord.bits.readActive;
             data->statusRegister.bits.readyForTransfer = data->controlWord.bits.readyForTransfer;
 
-            if (data->controlWord.bits.deviceClear) {
-                printf("PaperTape DeviceClear\n");
+            if (data->controlWord.bits.deviceClear) {                
                 data->statusRegister.bits.readActive = 0;
                 data->statusRegister.bits.readyForTransfer = 0;
                 data->characterBuffer = 0x00;
