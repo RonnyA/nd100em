@@ -185,7 +185,7 @@ void ndfunc_sbyt(ushort operand);
 void ndfunc_mix3(ushort operand);
 
 void OpToStr(char *opstr, ushort operand);
-void do_op(unsigned short operand);
+void do_op(unsigned short operand, bool isEXR);
 void new_regop (unsigned short operand);
 void regop (unsigned short operand);
 void do_skp(unsigned short operand);
@@ -206,7 +206,6 @@ void DoSRB(ushort operand);
 void DoLRB(ushort operand);
 void DoMCL(ushort instr);
 void DoMST(ushort instr);
-void DoCLEPT();
 void DoTRA(ushort instr);
 void DoTRR(ushort instr);
 void DoWAIT(ushort instr);
@@ -216,6 +215,7 @@ void DoMOVB(ushort instr);
 void DoMOVBF(ushort instr);
 void or_A_mem (char XIB, char displacement);
 void and_A_mem (char XIB, char displacement);
+short signExtend(ushort x);
 ushort do_add(ushort a, ushort b, ushort k);
 void setreg(int r, int val);
 void do_debug_txt(char *txt);
@@ -253,10 +253,12 @@ void prefetch();
 void cpu_start(void);
 void mopc_thread();
 
-void Instruction_Add(int start, int stop, void *funcpointer);
+void Instruction_Add_Range(int start, int stop, void *funcpointer);
+void Instruction_Add_Mask(int opcode, int mask, void *funcpointer);
+void Instruction_Add(int opcode, void *funcpointer);
 void Setup_Instructions ();
 
-extern void mon (unsigned char monnum);
+extern void mon (ushort monnum);
 extern void io_op (ushort ioadd);
 extern void Setup_IO_Handlers ();
 extern unsigned short extract_opcode(unsigned short instr);
@@ -284,6 +286,11 @@ extern void disasm_userel(ushort addr, ushort where);
 extern void disasm_set_isdata(ushort addr);
 
 extern struct display_panel *gPAP;
+
+void checkAndSwitch();
+bool executeLevelShift();
+
+bool CheckPriv();
 
 extern void TickIO();
 
