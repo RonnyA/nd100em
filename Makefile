@@ -7,7 +7,8 @@ CC= gcc
 #CFLAGS = -Wall -O3 -pg -fno-aggressive-loop-optimizations -ggdb 
 
 # Debug
-CFLAGS = -Wall -O0 -pg -fno-aggressive-loop-optimizations -ggdb -DDEBUG
+# profiling for gprof: -pg 
+CFLAGS = -Wall -O0 -fno-aggressive-loop-optimizations -ggdb -DDEBUG
 
 # Source files
 SRCS = nd100em.c \
