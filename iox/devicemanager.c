@@ -29,25 +29,29 @@
 #include "deviceFloppyDMA.h"
 #include "deviceRTC.h"
 #include "deviceSMD.h"
+
 #define INITIAL_DEVICE_CAPACITY 16
 
+//#define LOG_DEVICE_NOT_FOUND
+
 // Define the level strings array
-const char* level_str[] = {
+const char *level_str[] = {
     "DEBUG",
     "INFO",
     "WARNING",
-    "ERROR"
-};
+    "ERROR"};
 
 static DeviceManager deviceManager = {0}; // Initialize to zero
 
 // Logging function implementation
-void Log(LogLevel level, const char* format, ...) {
+void Log(LogLevel level, const char *format, ...)
+{
     // Skip if the message level is below the minimum level
-    if (level < deviceManager.minLogLevel) {
+    if (level < deviceManager.minLogLevel)
+    {
         return;
     }
-    
+
     va_list args;
     va_start(args, format);
     printf("[%s] ", level_str[level]);
@@ -113,14 +117,13 @@ void DeviceManager_AddAllDevices(void)
     DeviceManager_AddDevice(DEVICE_TYPE_PAPER_TAPE, 0);
 
     // Add the FloppyPIO at octal 1560-1567
-    //DeviceManager_AddDevice(DEVICE_TYPE_FLOPPY_PIO, 0);
+    // DeviceManager_AddDevice(DEVICE_TYPE_FLOPPY_PIO, 0);
 
     // Add the FloppyDMA at octal 1560-1567
     DeviceManager_AddDevice(DEVICE_TYPE_FLOPPY_DMA, 0);
 
     // Add the SMD at octal 1540-1547
     DeviceManager_AddDevice(DEVICE_TYPE_DISC_SMD, 0);
-
 }
 
 static Device *CreateDevice(DeviceType type, uint8_t thumbwheel)
@@ -171,13 +174,13 @@ static Device *CreateDevice(DeviceType type, uint8_t thumbwheel)
             return NULL;
         }
         break;
-    case DEVICE_TYPE_FLOPPY_DMA:    
+    case DEVICE_TYPE_FLOPPY_DMA:
         dev = CreateFloppyDMADevice(thumbwheel);
         if (!dev)
         {
             Log(LOG_ERROR, "Failed to create floppy DMA device\n");
             return NULL;
-        }                
+        }
         break;
     default:
         Log(LOG_ERROR, "Unknown device type: %d\n", type);
@@ -185,7 +188,7 @@ static Device *CreateDevice(DeviceType type, uint8_t thumbwheel)
     }
 
     // Reset the device
-    if(dev)
+    if (dev)
     {
         Device_Reset(dev);
     }
@@ -209,7 +212,7 @@ bool DeviceManager_AddDevice(DeviceType type, uint8_t thumbwheel)
     // Check if we have capacity
     if (deviceManager.deviceCount >= deviceManager.deviceCapacity)
     {
-        Log(LOG_ERROR, "Failed to add device: device array is full (capacity: %d, count: %d)\n", 
+        Log(LOG_ERROR, "Failed to add device: device array is full (capacity: %d, count: %d)\n",
             deviceManager.deviceCapacity, deviceManager.deviceCount);
         return false;
     }
@@ -234,18 +237,20 @@ uint16_t DeviceManager_Read(uint32_t address)
 {
     for (int i = 0; i < deviceManager.deviceCount; i++)
     {
-        
+
         Device *dev = deviceManager.devices[i].device;
 
         if (dev && Device_IsInAddress(dev, address))
         {
-            //Log(LOG_DEBUG, "Device found for READ address: %o\n", address);
+            // Log(LOG_DEBUG, "Device found for READ address: %o\n", address);
             return Device_Read(dev, address);
         }
     }
 
-    interrupt(14,1<<7); /* IOX error lvl14 */
-    //Log(LOG_WARNING, "No device found for READ address: %o\n", address);
+    interrupt(14, 1 << 7); /* IOX error lvl14 */
+#ifdef LOG_DEVICE_NOT_FOUND    
+    Log(LOG_WARNING, "No device found for READ address: %o\n", address);
+#endif
     return 0;
 }
 
@@ -260,7 +265,6 @@ void DeviceManager_Write(uint32_t address, uint16_t value)
             continue;
         }
 
-
         if (Device_IsInAddress(dev, address))
         {
             //Log(LOG_DEBUG, "Device found for WRITE address: %o\n", address);
@@ -269,10 +273,11 @@ void DeviceManager_Write(uint32_t address, uint16_t value)
         }
     }
 
-    interrupt(14,1<<7); /* IOX error lvl14 */
-    //Log(LOG_WARNING, "No device found for WRITE address: %o\n", address);
+    interrupt(14, 1 << 7); /* IOX error lvl14 */
+#ifdef LOG_DEVICE_NOT_FOUND    
+    Log(LOG_WARNING, "No device found for WRITE address: %o\n", address);
+#endif
 }
-
 
 int DeviceManager_Ident(uint16_t level)
 {
@@ -289,15 +294,21 @@ int DeviceManager_Ident(uint16_t level)
         }
     }
 
-    //interrupt(14,1<<7); /* IOX error lvl14 */
-    //Log(LOG_WARNING, "No device found for IDENT level: %d\n", level);
-    return -1;
+#ifdef LOG_DEVICE_NOT_FOUND
+    // interrupt(14,1<<7); /* IOX error lvl14 */
+     Log(LOG_WARNING, "No device found for IDENT level: %d\n", level);
+#endif    
+
+    return 0;
 }
 
 static Device *rtc_dev;
 /// @brief Special function to clear interrupt on RTC clock
+/// Returns the new active interrupt bits from alle devices
 void DeviceManager_ClearRTC_INT()
 {
+    uint16_t interruptBits = 0;
+
     // Optimize for speed by using eralier found reference
     if (rtc_dev)
     {
@@ -316,7 +327,11 @@ void DeviceManager_ClearRTC_INT()
                 dev->interruptBits &= ~(1<<13);
             }
         }
+
+        interruptBits |= dev->interruptBits;
     }
+
+    return interruptBits;
 }
 
 uint16_t DeviceManager_Tick(void)
