@@ -125,7 +125,10 @@ typedef signed long int slong;
 /*************************************************/
 
 /* Lets use the full 16MWord space now (32MB ram in host)*/
-#define MEMPTSIZE 16384
+//#define MEMPTSIZE 16384
+
+// Lets just use 2MB for now
+#define MEMPTSIZE 2048 //8192
 
 /* Volatile Memory
  * Fixed to MEMPTSIZE KWords for now.
@@ -151,11 +154,14 @@ union NewPT {
 
 struct CpuRegs {
 	ushort	reg[16][16];	/* main CPU registers for all runlevels */
+
+	ushort	reg_STS;	/* STS register HIGH bits - not unique pr runlevel - used to be in reg[0][_STS]*/
+
 	ushort	reg_PANS;	/* */
 	ushort	reg_PANC;	/* */
 	ushort	reg_OPR;	/* */
 	ushort	reg_LMP;	/* */
-	ushort	reg_PGS;	/* */
+	ushort	reg_PGS;	/* */	
 	ushort	reg_PCR[16];	/* Paging Control Registers */
 	ushort	reg_PVL;	/* */
 	ushort	reg_IIC;	/* IIC is actually just a priority encoded (IID | IIE) */
@@ -180,17 +186,24 @@ struct CpuRegs {
 	ushort	myreg_IR;	/* InstructionRegister */
 	ushort	myreg_PFB;	/* PrefetchBuffer */
 
+	// Calculated EA and pagetable info (updated before opcode is executed)
+	ushort effectiveAddress;
+	bool useAPT;
+
 	/* "locks" for registers that according to manual works that way (PES, PGS, IIC) */
 	/* 1 = "locked" */
 	/* :TODO: Check if PEA and PES should have a common lock */
 	bool	mylock_PEA;
 	bool	mylock_PES;
 	bool	mylock_PGS;
-	bool	mylock_IIC;
+
 
 	/* taking a shortcut by creating a PK 4bit register */
 	/* always modify this as well when touching PID or PIE */
 	ushort	myreg_PK;
+	
+	// should cpu levels be checked ?
+	bool    chkit;
 
 	/* For MOPC/OPCOM tracing and breakpoint functionality */
 	/* counter for semirun mode*/
@@ -222,13 +235,13 @@ typedef enum {SHUTDOWN, STOP, SEMIRUN, RUN} _RUNMODE_;
 
 typedef enum {ND1, ND4, ND10, ND100, ND100CE, ND100CX, ND110, ND110CE, ND110CX, ND110PCX} _CPUTYPE_;
 
-#define gPC	gReg->reg[((gReg->reg[0][_STS] & 0x0f00) >>8)][_P]
-#define gA	gReg->reg[((gReg->reg[0][_STS] & 0x0f00) >>8)][_A]
-#define gT	gReg->reg[((gReg->reg[0][_STS] & 0x0f00) >>8)][_T]
-#define gB	gReg->reg[((gReg->reg[0][_STS] & 0x0f00) >>8)][_B]
-#define gD	gReg->reg[((gReg->reg[0][_STS] & 0x0f00) >>8)][_D]
-#define gX	gReg->reg[((gReg->reg[0][_STS] & 0x0f00) >>8)][_X]
-#define gL	gReg->reg[((gReg->reg[0][_STS] & 0x0f00) >>8)][_L]
+#define gPC	gReg->reg[gPIL][_P]
+#define gA	gReg->reg[gPIL][_A]
+#define gT	gReg->reg[gPIL][_T]
+#define gB	gReg->reg[gPIL][_B]
+#define gD	gReg->reg[gPIL][_D]
+#define gX	gReg->reg[gPIL][_X]
+#define gL	gReg->reg[gPIL][_L]
 
 #define gPANC	gReg->reg_PANC
 #define gPANS	gReg->reg_PANS
@@ -252,37 +265,70 @@ typedef enum {ND1, ND4, ND10, ND100, ND100CE, ND100CX, ND110, ND110CE, ND110CX, 
 #define gPEA	gReg->reg_PEA
 #define gECCR	gReg->reg_ECCR
 
-/* Use lvl0 as default to start with, and then just always(!!!) set all levels when setting STS MSB flags */
-/* so by default we use reg[0][_STS] as MSB STS */
-#define CurrLEVEL	((gReg->reg[0][_STS] & 0x0f00) >>8)
-#define gPIL		((gReg->reg[0][_STS] & 0x0f00) >>8)
+
+#define gPEA_Lock 	gReg->mylock_PEA
+#define gPES_Lock 	gReg->mylock_PES
+#define gPGS_Lock 	gReg->mylock_PES
+#define gIIC_Lock 	gReg->mylock_IIC
+
+
+#define CurrLEVEL	((gReg->reg_STS & 0x0f00) >>8)
+#define gPIL		((gReg->reg_STS & 0x0f00) >>8)
 
 /* Highest runlevel with PIE AND PID bits both set */
 #define gPK		gReg->myreg_PK
 
+/* Should CPU levels be checked ? */
+#define gCHKIT	gReg->chkit
+
 /* The complete Status register both MSB and LSB for current runlevel. Read only MACRO */
-#define gSTSr		((gReg->reg[0][_STS] & 0xFF00) | (gReg->reg[(gReg->reg[][_STS] & 0x0f00) >>8][_STS] & 0x00FF))
+#define gSTSr		((gReg->reg_STS & 0xFF00) | (gReg->reg[gPIL][_STS] & 0x00FF))
 
 #define InstructionRegister	gReg->myreg_IR
 #define PrefetchBuffer		gReg->myreg_PFB
 
-#define STS_PTM  ((gReg->reg[((gReg->reg[0][_STS] & 0x0f00) >>8)][_STS] & 0x0001)>>0)	/* */
-#define STS_TG   ((gReg->reg[((gReg->reg[0][_STS] & 0x0f00) >>8)][_STS] & 0x0002)>>1)	/* */
-#define STS_K    ((gReg->reg[((gReg->reg[0][_STS] & 0x0f00) >>8)][_STS] & 0x0004)>>2)	/* */
-#define STS_Z    ((gReg->reg[((gReg->reg[0][_STS] & 0x0f00) >>8)][_STS] & 0x0008)>>3)	/* */
-#define STS_Q    ((gReg->reg[((gReg->reg[0][_STS] & 0x0f00) >>8)][_STS] & 0x0010)>>4)	/* */
-#define STS_O    ((gReg->reg[((gReg->reg[0][_STS] & 0x0f00) >>8)][_STS] & 0x0020)>>5)	/* */
-#define STS_C    ((gReg->reg[((gReg->reg[0][_STS] & 0x0f00) >>8)][_STS] & 0x0040)>>6)	/* */
-#define STS_M    ((gReg->reg[((gReg->reg[0][_STS] & 0x0f00) >>8)][_STS] & 0x0080)>>7)	/* */
-#define STS_PL   ((gReg->reg[0][_STS] & 0x0f00) >>8)					/* Program runlevel */
-#define STS_N100 ((gReg->reg[0][_STS] & 0x1000) >>12)					/* Nord 100 indicator */
-#define STS_SEXI ((gReg->reg[0][_STS] & 0x2000) >>13)					/* Extended MMS adressing on/off indicator (24 bit instead of 19 bit*/
-#define STS_PONI ((gReg->reg[0][_STS] & 0x4000) >>14)					/* Memory management on/off indicator */
-#define STS_IONI ((gReg->reg[0][_STS] & 0x8000) >>15)					/* Interrupt system on/off indicator */
+#define gEA                 gReg->effectiveAddress
+#define gUseAPT             gReg->useAPT
 
-#define UNDEF_INSTR ((ushort)0142500)
+#define STS_PTM  ((gReg->reg[gPIL][_STS]>>0) & 0x01)	/* */
+#define STS_TG   ((gReg->reg[gPIL][_STS]>>1) & 0x01)	/* */
+#define STS_K    ((gReg->reg[gPIL][_STS]>>2) & 0x01)	/* */
+#define STS_Z    ((gReg->reg[gPIL][_STS]>>3) & 0x01)	/* */
+#define STS_Q    ((gReg->reg[gPIL][_STS]>>4) & 0x01)	/* */
+#define STS_O    ((gReg->reg[gPIL][_STS]>>5) & 0x01)	/* */
+#define STS_C    ((gReg->reg[gPIL][_STS]>>6) & 0x01)	/* */
+#define STS_M    ((gReg->reg[gPIL][_STS]>>7) & 0x01)	/* */
 
-
+#define STS_PL   ((gReg->reg_STS >>8  ) & 0x0F)	/* Program runlevel */
+#define STS_N100 ((gReg->reg_STS >>12 ) & 0x01)	/* Nord 100 indicator */
+#define STS_SEXI ((gReg->reg_STS >>13 ) & 0x01)	/* Extended MMS adressing on/off indicator (24 bit instead of 19 bit*/
+#define STS_PONI ((gReg->reg_STS >>14 ) & 0x01)	/* Memory management on/off indicator */
+#define STS_IONI ((gReg->reg_STS >>15 ) & 0x01)	/* Interrupt system on/off indicator */
 
 #endif // ND100_H
 
+/*
+
+ALD SWITCH
+
++--------+------------------+-------------------+-----------------------------------------------------------------------
+|SWITCH  | ALD VECTOR (hex) | ALD VALUE (octal) | DESCRIPTION
++--------+------------------+-------------------+-----------------------------------------------------------------------
+|15      |     x0           | 0                 | (Note 2)
+|14      |     x1           | 1560              | Switch setting 14 -  BPUN load from floppy (1560) and run (*3)
+|13      |     x2           | 20500             | Bootstrap load from Winchester disk (500) and run (*3)
+|12      |     x3           | 21540             | Bootstrap load from SMD disk (1540,) and run (*3)
+|11      |     x4           | 400               | BPUN load from paper tape (400) and run (*3)
+|10      |     x5           | 1600              | BPUN load from HDLC (1600) and run (*3)
+|9       |     x6           | 21560             | Run (*3) (No load)
+|8       |     x7           | 0                 | Run (*3) (No load)
+|7       |     x8           | 100000            | (Note 2)
+|6       |     x9           | 101560            | Binary load from 1560 (SCSI boot use this setting..?)
+|5       |     xA           | 120500            | Mass storage from 500
+|4       |     xB           | 121540            | Mass storage from 1540 (SMD disk)
+|3       |     xC           | 100400            | Binary load from 400 (paper tape reader)
+|2       |     xD           | 101600            | Switch setting 2 -  Binary load from 1600 (HDLC)
+|1       |     xE           | 121560            |
+|0       |     xF           | 100000            |
++--------+------------------+-------------------+-----------------------------------------------------------------------
+*/
