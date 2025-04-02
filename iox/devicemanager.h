@@ -75,7 +75,7 @@ uint16_t DeviceManager_Tick(void);
 Device* DeviceManager_GetDeviceByAddress(uint32_t address);
 void DeviceManager_AddAllDevices(void);
 
-void DeviceManager_ClearRTC_INT();
+uint16_t DeviceManager_ClearRTC_INT();
 
 // Logging function
 void Log(LogLevel level, const char* format, ...);

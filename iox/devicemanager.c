@@ -305,7 +305,7 @@ int DeviceManager_Ident(uint16_t level)
 static Device *rtc_dev;
 /// @brief Special function to clear interrupt on RTC clock
 /// Returns the new active interrupt bits from alle devices
-void DeviceManager_ClearRTC_INT()
+uint16_t DeviceManager_ClearRTC_INT()
 {
     uint16_t interruptBits = 0;
 
