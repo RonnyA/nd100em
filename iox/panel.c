@@ -202,32 +202,50 @@ void ProcessTerminalLamp()
 /// </summary>
 void UpdateMachineTime()
 {
-	time_t tbase = 283996800; // 1979-01-01 00:00:00 UTC
-	time_t now = time(NULL);
+	time_t tbase = 0;
+	time_t now = time(NULL);	
+	
+	// Set base time to 1979-01-01 00:00:00 CET
+	struct tm *tm_base = localtime(&tbase);
+	tm_base->tm_year = 79;  // Years since 1900, so 79 = 1979	
+	tm_base->tm_mon = 0;    // Months are 0-based, so 0 = January
+	tm_base->tm_mday = 1;   // Day of month
+	tm_base->tm_hour = 0;
+	tm_base->tm_min = 0;
+	tm_base->tm_sec = 0;
+	tbase = mktime(tm_base);
+
+	struct tm *tm_now = localtime(&now);	
+	
 
 	// Sintran doesn't support Y2K (without patches) so stay in year before 2000...
-	// Subtract 28 years from current time (2023-28 = 1995)
-	struct tm *tm_now = localtime(&now);
-	tm_now->tm_year -= 28;
+	// Subtract 30 years from current time (2025-30 = 1995)	
+
+	tm_now->tm_year -= 30;
 	now = mktime(tm_now);
 
-	// Get midnight of current day
-	struct tm *tm_midnight = localtime(&now);
-	tm_midnight->tm_hour = 0;
-	tm_midnight->tm_min = 0;
-	tm_midnight->tm_sec = 0;
-	time_t midnight = mktime(tm_midnight);
+	time_t midnight = now;
+	struct tm *tm_midnight = localtime(&midnight);	
 
 	// Calculate days difference from TBASE
-	double days_diff = difftime(now, tbase) / (24.0 * 3600.0);
+	int days_diff = (int)(difftime(now, tbase) / (24.0 * 3600.0));
 	gPAP->days = (uint16_t)(days_diff * 2); // Convert to half-days
 
 	// Check if we've passed noon
-	if (tm_now->tm_hour >= 12)
-	{
+	if (tm_now->tm_hour >= 11)
+	{		
 		gPAP->days++; // Add another half day
-		// Adjust time to count seconds since midnight
-		now = now - (12 * 3600);
+
+		// Get midnight of current day		
+		tm_midnight->tm_hour = 0;
+		tm_midnight->tm_min = 0;
+		tm_midnight->tm_sec = 0;
+		midnight = mktime(tm_midnight);
+
+		// Now counting since noon
+		struct tm *tm_now = localtime(&now);	
+		tm_now->tm_hour -= 12;;
+		now = mktime(tm_now);
 	}
 
 	// Calculate seconds since midnight
