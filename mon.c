@@ -146,7 +146,7 @@ void mon_notyet() {
 }
 
 
-void mon (unsigned char monnum) {
+void mon (ushort monnum) {
 	monarr[monnum]();	/* call using a function pointer from the array
 				this way we are as flexible as possible as we
 				implement mon calls. */
