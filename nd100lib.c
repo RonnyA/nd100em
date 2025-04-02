@@ -569,6 +569,8 @@ void setup_cpu(){
 
 	/* OK lets set up the parsing for our current cpu before we start it. */
 	Setup_Instructions(); 
+	
+	gALD = 01560;// oct 1560 (ALD position 4, Binary load from 1560) // Floppy
 }
 
 void cleanup_cpu()
