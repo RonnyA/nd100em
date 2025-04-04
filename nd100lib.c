@@ -39,37 +39,42 @@
 #include "nd100.h"
 #include "io_new.h"
 #include "nd100lib.h"
-
+#include "floppy.h"
 /*
  * IN: pointer to string of octal chars.
  * OUT: integer
  * NOTE: No error handling...Should not matter since it should only be called with 16 bit numbers normally
  */
-int octalstr_to_integer(char *str){
-	int i,len,res;
+int octalstr_to_integer(char *str)
+{
+	int i, len, res;
 	char ch;
-	len=strlen(str);
-	res=0;
-	for(i=0;i<len;i++){
-		ch=str[len-i-1];
-		ch=ch-48;  /* Ok, "0" now equals 0 */
-		res += (int)ch*pow(8,i);
+	len = strlen(str);
+	res = 0;
+	for (i = 0; i < len; i++)
+	{
+		ch = str[len - i - 1];
+		ch = ch - 48; /* Ok, "0" now equals 0 */
+		res += (int)ch * pow(8, i);
 	}
-	return(res);
+	return (res);
 }
 
-int mysleep(int sec, int usec) {
-#if !(defined __FreeBSD__ || defined BSD )
+int mysleep(int sec, int usec)
+{
+#if !(defined __FreeBSD__ || defined BSD)
 	int res;
 	struct timeval timeout;
 	/* Initialize the timeout data structure. */
 	timeout.tv_sec = sec;
 	timeout.tv_usec = usec;
-	res = select (FD_SETSIZE,NULL, NULL, NULL,&timeout);
+	res = select(FD_SETSIZE, NULL, NULL, NULL, &timeout);
 	return res;
 #else
-	if (sec) sleep(sec);
-	if (usec) usleep(usec);
+	if (sec)
+		sleep(sec);
+	if (usec)
+		usleep(usec);
 	return 0;
 #endif
 }
@@ -80,148 +85,186 @@ int mysleep(int sec, int usec) {
  * fix checks for overflows.
  */
 
-int bpun_load() {
+int bpun_load()
+{
 	FILE *bpun_file;
-	char bpun[]="test.bpun";
+	char bpun[] = "test.bpun";
 	char *str;
-	ushort read_word, eff_word, temp, checksum,load_add;
+	ushort read_word, eff_word, temp, checksum, load_add;
 	char read_byte;
-	bool isnum,isheader;
-	ushort counter,bpun_words;
+	bool isnum, isheader;
+	ushort counter, bpun_words;
 	int count, b_num, c_num;
-	char loadtype[]="r";
+	char loadtype[] = "r";
 	ushort *addr;
 	addr = (ushort *)&VolatileMemory;
 
-	if (debug) fprintf(debugfile,"BPUN file load:\n");
-	counter=0;
-	str = calloc(200,1);
-	bpun_file=fopen(bpun,loadtype);
+	if (debug)
+		fprintf(debugfile, "BPUN file load:\n");
+	counter = 0;
+	str = calloc(200, 1);
+	bpun_file = fopen(bpun, loadtype);
 
 	isheader = true;
 	isnum = false;
 	bpun_words = 0;
 	load_add = 0;
 	/* Get BPUN header */
-	do {
-                count = fread(&read_byte,1,1,bpun_file);
+	do
+	{
+		count = fread(&read_byte, 1, 1, bpun_file);
 		read_byte &= 0x7f; /* Remove parity bit */
-//		if (debug) fprintf(debugfile,"BPUN load: Byte READ %c @ counter: %d\n",read_byte,counter);
-		if ((read_byte >='0') && (read_byte <='9')) {
-			isnum=true;
-			strncat(str,&read_byte,1);
+						   //		if (debug) fprintf(debugfile,"BPUN load: Byte READ %c @ counter: %d\n",read_byte,counter);
+		if ((read_byte >= '0') && (read_byte <= '9'))
+		{
+			isnum = true;
+			strncat(str, &read_byte, 1);
 			/* :TODO: Fix checks for str overflow. */
-		} else if (read_byte == 13){
-			if (isnum) {
+		}
+		else if (read_byte == 13)
+		{
+			if (isnum)
+			{
 				b_num = octalstr_to_integer(str);
-				if (debug) fprintf(debugfile,"B number: %s, lenght %d, b_num=%d\n",str,(int)strlen(str),b_num);
+				if (debug)
+					fprintf(debugfile, "B number: %s, lenght %d, b_num=%d\n", str, (int)strlen(str), b_num);
 				free(str);
-				str = calloc(200,1);
+				str = calloc(200, 1);
 			}
-			isnum=false;
-		} else if (read_byte == '!'){
-			if (debug) fprintf(debugfile,"Found !\n");
-			if (isnum) {
+			isnum = false;
+		}
+		else if (read_byte == '!')
+		{
+			if (debug)
+				fprintf(debugfile, "Found !\n");
+			if (isnum)
+			{
 				c_num = octalstr_to_integer(str);
-				if (debug) fprintf(debugfile,"C number: %s, lenght %d, c_num=%d\n",str,(int)strlen(str),c_num);
+				if (debug)
+					fprintf(debugfile, "C number: %s, lenght %d, c_num=%d\n", str, (int)strlen(str), c_num);
 				free(str);
 			}
-			isnum=false;
-			isheader=false;
-		} else {
-			isnum=false;
+			isnum = false;
+			isheader = false;
+		}
+		else
+		{
+			isnum = false;
 		}
 		counter++;
 	} while ((count > 0) && isheader);
 	/* Get block load address */
-	if (count) {
-                count = fread(&read_word,1,2,bpun_file);
+	if (count)
+	{
+		count = fread(&read_word, 1, 2, bpun_file);
 		temp = (read_word & 0xff00) >> 8;
-		eff_word = temp |((read_word & 0x00ff) << 8);
-		load_add=eff_word;
-		if (debug) fprintf(debugfile,"Block load address: %d\n",eff_word);
+		eff_word = temp | ((read_word & 0x00ff) << 8);
+		load_add = eff_word;
+		if (debug)
+			fprintf(debugfile, "Block load address: %d\n", eff_word);
 	}
 	/* Get block word count */
-	if (count) {
-                count = fread(&read_word,1,2,bpun_file);
+	if (count)
+	{
+		count = fread(&read_word, 1, 2, bpun_file);
 		temp = (read_word & 0xff00) >> 8;
-		eff_word = temp |((read_word & 0x00ff) << 8);
+		eff_word = temp | ((read_word & 0x00ff) << 8);
 		bpun_words = eff_word;
-		if (debug) fprintf(debugfile,"Word count of block F: %d\n",eff_word);
+		if (debug)
+			fprintf(debugfile, "Word count of block F: %d\n", eff_word);
 	}
 	/* Get BPUN data */
-	counter=0; checksum=0;
-	do {
-                count = fread(&read_word,1,2,bpun_file);
+	counter = 0;
+	checksum = 0;
+	do
+	{
+		count = fread(&read_word, 1, 2, bpun_file);
 		temp = (read_word & 0xff00) >> 8;
-		eff_word = temp |((read_word & 0x00ff) << 8);
-		if (count){
-			MemoryWrite(eff_word,(counter+load_add),0,2);
-			if (DISASM){
-				disasm_addword(counter+load_add,eff_word);
+		eff_word = temp | ((read_word & 0x00ff) << 8);
+		if (count)
+		{
+			MemoryWrite(eff_word, (counter + load_add), 0, 2);
+			if (DISASM)
+			{
+				disasm_addword(counter + load_add, eff_word);
 			}
 		}
 		checksum = (eff_word + checksum) & 0xffff;
 		counter++;
 	} while ((count > 0) && counter < bpun_words);
 	/* Get BPUN checksum */
-	if (count) {
-                count = fread(&read_word,1,2,bpun_file);
+	if (count)
+	{
+		count = fread(&read_word, 1, 2, bpun_file);
 		temp = (read_word & 0xff00) >> 8;
-		eff_word = temp |((read_word & 0x00ff) << 8);
-		if (debug) fprintf(debugfile,"Checksum word: %d, expected: %d\n",eff_word,checksum);
+		eff_word = temp | ((read_word & 0x00ff) << 8);
+		if (debug)
+			fprintf(debugfile, "Checksum word: %d, expected: %d\n", eff_word, checksum);
 	}
 	/* Get BPUN action code.. Assuming word size */
-	if (count) {
-                count = fread(&read_word,1,2,bpun_file);
+	if (count)
+	{
+		count = fread(&read_word, 1, 2, bpun_file);
 		temp = (read_word & 0xff00) >> 8;
-		eff_word = temp |((read_word & 0x00ff) << 8);
-		if (debug) fprintf(debugfile,"Action code: %d\n",eff_word);
+		eff_word = temp | ((read_word & 0x00ff) << 8);
+		if (debug)
+			fprintf(debugfile, "Action code: %d\n", eff_word);
 	}
 	fclose(bpun_file);
 	return 0;
 }
 
-int bp_load() {
-	int i; ushort eff_word;
+int bp_load()
+{
+	int i;
+	ushort eff_word;
 	FILE *bin_file;
-	char bpun[]="test.bp";
-	char loadtype[]="r+";
+	char bpun[] = "test.bp";
+	char loadtype[] = "r+";
 
-	if (debug) fprintf(debugfile,"BP file load:\n");
-	bin_file=fopen(bpun,loadtype);
-	fread(&VolatileMemory,2,65536,bin_file);
-	for(i=0;i<65536;i++){
-		if (DISASM){
-			eff_word = MemoryRead((ushort)i,0);
-			disasm_addword(i,eff_word);
+	if (debug)
+		fprintf(debugfile, "BP file load:\n");
+	bin_file = fopen(bpun, loadtype);
+	fread(&VolatileMemory, 2, 65536, bin_file);
+	for (i = 0; i < 65536; i++)
+	{
+		if (DISASM)
+		{
+			eff_word = MemoryRead((ushort)i, 0);
+			disasm_addword(i, eff_word);
 		}
 	}
 	fclose(bin_file);
 	return 0;
 }
 
-int debug_open(){
-	debugfile=fopen(debugname,debugtype);
-	if(debugfile) {
-		fprintf(debugfile,"\n-----------------NEW DEBUG---------------------------------------\n");
-	} else {
+int debug_open()
+{
+	debugfile = fopen(debugname, debugtype);
+	if (debugfile)
+	{
+		fprintf(debugfile, "\n-----------------NEW DEBUG---------------------------------------\n");
+	}
+	else
+	{
 		debug = 0; /* Since we failed to open the debugfile, turn off debugging. But otherwise continue. */
 	};
-	return(0);
+	return (0);
 }
 
-void unsetcbreak (void) {/* prepare to exit this program. */
+void unsetcbreak(void)
+{ /* prepare to exit this program. */
 	tcsetattr(0, TCSADRAIN, &savetty);
 }
 
-void setcbreak (void) {/* set console input to raw mode. */
+void setcbreak(void)
+{ /* set console input to raw mode. */
 	struct termios tty;
 	tcgetattr(0, &savetty);
 	tcgetattr(0, &tty);
-	tty.c_lflag &= ~(ECHO|ECHONL|ICANON|IEXTEN);
-	tty.c_cc[VTIME] = (cc_t)0;     /* inter-character timer unused */
-	tty.c_cc[VMIN] = (cc_t)0;	/* Dont wait for chars - non-blocking read */
+	tty.c_lflag &= ~(ECHO | ECHONL | ICANON | IEXTEN);
+	tty.c_cc[VTIME] = (cc_t)0; /* inter-character timer unused */
+	tty.c_cc[VMIN] = (cc_t)0;  /* Dont wait for chars - non-blocking read */
 	tcsetattr(0, TCSADRAIN, &tty);
 
 	/* After this is set:
@@ -232,203 +275,276 @@ void setcbreak (void) {/* set console input to raw mode. */
 	*/
 }
 
-
-
 /*
  * New config model used libconfig to load configuration file.
-*/
-int nd100emconf(){
-	char conf[]="nd100em.conf";
+ */
+int nd100emconf()
+{
+	char conf[] = "nd100em.conf";
 	char *tmpstr;
 	config_setting_t *setting = NULL;
 
-	pCFG=malloc(sizeof(struct config_t));
-	if(pCFG == NULL) {
+	pCFG = malloc(sizeof(struct config_t));
+	if (pCFG == NULL)
+	{
 		printf("ERROR allocating memory for configuration data!!!\n");
 		exit(1);
 	}
-	bzero(pCFG,sizeof(struct config_t));
+	bzero(pCFG, sizeof(struct config_t));
 	/* Load config file */
-	if(!config_read_file(pCFG, conf)){
+	if (!config_read_file(pCFG, conf))
+	{
 		printf("Failed reading config file...\n");
-		return(1);
+		return (1);
 	}
 	setting = config_lookup(pCFG, "cputype");
-	if (setting) {
-		tmpstr = (char *) config_setting_get_string(setting);
-		if (tmpstr) {
-			if(strcmp("nd110cx",tmpstr)==0){
+	if (setting)
+	{
+		tmpstr = (char *)config_setting_get_string(setting);
+		if (tmpstr)
+		{
+			if (strcmp("nd110cx", tmpstr) == 0)
+			{
 				CurrentCPUType = ND110CX; /* ND110/CX */
-			} else if(strcmp("nd110ce",tmpstr)==0){
+			}
+			else if (strcmp("nd110ce", tmpstr) == 0)
+			{
 				CurrentCPUType = ND110CE; /* ND110/CE */
-			} else if(strcmp("nd110",tmpstr)==0){
+			}
+			else if (strcmp("nd110", tmpstr) == 0)
+			{
 				CurrentCPUType = ND110; /* Plain ND110 */
-			} else if(strcmp("nd100cx",tmpstr)==0){
+			}
+			else if (strcmp("nd100cx", tmpstr) == 0)
+			{
 				CurrentCPUType = ND100CX; /* ND100/CX */
-			} else if(strcmp("nd100ce",tmpstr)==0){
+			}
+			else if (strcmp("nd100ce", tmpstr) == 0)
+			{
 				CurrentCPUType = ND100CE; /* ND100/CE */
-			} else {
+			}
+			else
+			{
 				CurrentCPUType = ND100; /* Plain ND100 by default */
 			}
-		} else {
+		}
+		else
+		{
 			CurrentCPUType = ND100; /* Plain ND100 by default */
 		}
-	} else {
+	}
+	else
+	{
 		CurrentCPUType = ND100; /* Plain ND100 by default */
 	}
 	setting = config_lookup(pCFG, "boot");
-	if (setting) {
+	if (setting)
+	{
 		tmpstr = (char *)config_setting_get_string(setting);
-		if (tmpstr) {
-			if(strcmp("bp",tmpstr)==0){
-				BootType=BP;
-			} else if(strcmp("bpun",tmpstr)==0){
-				BootType=BPUN;
-			} else if(strcmp("floppy",tmpstr)==0){
-				BootType=FLOPPY;
-			} else {
+		if (tmpstr)
+		{
+			if (strcmp("bp", tmpstr) == 0)
+			{
+				BootType = BP;
+			}
+			else if (strcmp("bpun", tmpstr) == 0)
+			{
+				BootType = BPUN;
+			}
+			else if (strcmp("floppy", tmpstr) == 0)
+			{
+				BootType = FLOPPY;
+			}
+			else
+			{
 				/* TODO:: Need a default value */
 			}
-		} else {
+		}
+		else
+		{
 			/* TODO:: Need a default value */
 		}
-	} else {
+	}
+	else
+	{
 		/* TODO:: Need a default value */
 	}
 	setting = config_lookup(pCFG, "image");
-	if (setting) {
+	if (setting)
+	{
 		tmpstr = (char *)config_setting_get_string(setting);
-		if (tmpstr) {
-			//#and we need the image file name here, can be any image type.
-			//image=test
-			// NOT USED yet.. ..TODO
-		} else {
+		if (tmpstr)
+		{
+			// #and we need the image file name here, can be any image type.
+			// image=test
+			//  NOT USED yet.. ..TODO
+		}
+		else
+		{
 			/* TODO:: Need a default value */
 		}
-	} else {
+	}
+	else
+	{
 		/* TODO:: Need a default value */
 	}
 	setting = config_lookup(pCFG, "start");
-	if (setting) {
+	if (setting)
+	{
 		STARTADDR = config_setting_get_int(setting);
-	} else {
+	}
+	else
+	{
 		STARTADDR = 0;
 	}
 	setting = config_lookup(pCFG, "debug");
-	if (setting) {
+	if (setting)
+	{
 		debug = config_setting_get_int(setting);
-	} else {
+	}
+	else
+	{
 		debug = 0;
 	}
 	setting = config_lookup(pCFG, "trace");
-	if (setting) {
+	if (setting)
+	{
 		trace = config_setting_get_int(setting);
-	} else {
+	}
+	else
+	{
 		trace = 0;
 	}
 	setting = config_lookup(pCFG, "disasm");
-	if (setting) {
+	if (setting)
+	{
 		DISASM = config_setting_get_int(setting);
-	} else {
+	}
+	else
+	{
 		DISASM = 0;
 	}
 	setting = config_lookup(pCFG, "panel");
-	if (setting) {
+	if (setting)
+	{
 		PANEL_PROCESSOR = config_setting_get_int(setting);
-	} else {
+	}
+	else
+	{
 		PANEL_PROCESSOR = 0;
 	}
 
 	setting = config_lookup(pCFG, "daemonize");
-	if (setting) {
+	if (setting)
+	{
 		DAEMON = config_setting_get_int(setting);
-	} else {
+	}
+	else
+	{
 		DAEMON = 0;
 	}
 	setting = config_lookup(pCFG, "emulatemon");
-	if (setting) {
+	if (setting)
+	{
 		emulatemon = config_setting_get_int(setting);
-	} else {
+	}
+	else
+	{
 		emulatemon = 0;
 	}
 	setting = config_lookup(pCFG, "floppy_image");
-	if (setting) {
+	if (setting)
+	{
 		tmpstr = (char *)config_setting_get_string(setting);
 		if (tmpstr)
 			FDD_IMAGE_NAME = strdup(tmpstr);
 	}
-	
+
 	setting = config_lookup(pCFG, "floppy_image_access");
-	if (setting) {
+	if (setting)
+	{
 		tmpstr = (char *)config_setting_get_string(setting);
-		if (tmpstr) {
-			if(strcmp("rw",tmpstr)==0)
+		if (tmpstr)
+		{
+			if (strcmp("rw", tmpstr) == 0)
 				FDD_IMAGE_RO = 0;
-		} else {
+		}
+		else
+		{
 			FDD_IMAGE_RO = 1;
 		}
-	} else {
+	}
+	else
+	{
 		FDD_IMAGE_RO = 1;
 	}
 
 	setting = config_lookup(pCFG, "hawk_image");
-	if (setting) {
+	if (setting)
+	{
 		tmpstr = (char *)config_setting_get_string(setting);
 		if (tmpstr)
 			HAWK_IMAGE_NAME = strdup(tmpstr);
 	}
 
 	setting = config_lookup(pCFG, "bigdisk_image");
-	if (setting) {
+	if (setting)
+	{
 		tmpstr = (char *)config_setting_get_string(setting);
 		if (tmpstr)
 			BIGDISK_IMAGE_NAME = strdup(tmpstr);
 	}
 
-
 	config_destroy(pCFG);
 	free(pCFG);
-	CONFIG_OK = 1;      /* :TODO: No detailed checks of all dependant parameters yet */
-	return(0);
+	CONFIG_OK = 1; /* :TODO: No detailed checks of all dependant parameters yet */
+	return (0);
 }
 
-void shutdown(int signum){
-	if (debug) fprintf(debugfile,"(####) shutdown routine running\n");
-	if (debug) fflush(debugfile);
+void shutdown(int signum)
+{
+	if (debug)
+		fprintf(debugfile, "(####) shutdown routine running\n");
+	if (debug)
+		fflush(debugfile);
 
 	/* This works for now. All threads should terminate if this variable is set */
 	CurrentCPURunMode = SHUTDOWN;
 
-	if (debug) fprintf(debugfile,"(####) shutdown routine done\n");
-	if (debug) fflush(debugfile);
+	if (debug)
+		fprintf(debugfile, "(####) shutdown routine done\n");
+	if (debug)
+		fflush(debugfile);
 }
 
-
-void blocksignals() {
-	static sigset_t   new_set;
-	static sigset_t   old_set;
-	sigemptyset (&new_set);
-	sigemptyset (&old_set);
+void blocksignals()
+{
+	static sigset_t new_set;
+	static sigset_t old_set;
+	sigemptyset(&new_set);
+	sigemptyset(&old_set);
 
 	/* set signals now */
-	if (DAEMON) {
-		sigaddset (&new_set, SIGCHLD); /* ignore child */
-		sigaddset (&new_set, SIGTSTP); /* ignore tty signals */
-		sigaddset (&new_set, SIGTTOU);
-		sigaddset (&new_set, SIGTTIN);
+	if (DAEMON)
+	{
+		sigaddset(&new_set, SIGCHLD); /* ignore child */
+		sigaddset(&new_set, SIGTSTP); /* ignore tty signals */
+		sigaddset(&new_set, SIGTTOU);
+		sigaddset(&new_set, SIGTTIN);
 	}
-	sigaddset (&new_set, SIGALRM); /* ignore timer for process.. this one we will install handler for later */
-	sigaddset (&new_set, SIGINT); /* kill signal we will catch in handles */
-	sigaddset (&new_set, SIGHUP); /* see above */
-	sigaddset (&new_set, SIGTERM); /* see above */	
+	sigaddset(&new_set, SIGALRM); /* ignore timer for process.. this one we will install handler for later */
+	sigaddset(&new_set, SIGINT);  /* kill signal we will catch in handles */
+	sigaddset(&new_set, SIGHUP);  /* see above */
+	sigaddset(&new_set, SIGTERM); /* see above */
 }
 
-void setsignalhandlers() {
-	//static sigset_t   new_set;
-	//static sigset_t   old_set;
+void setsignalhandlers()
+{
+	// static sigset_t   new_set;
+	// static sigset_t   old_set;
 
-	//static struct sigaction act;
-	//static struct sigaction act_alrm;
+	// static struct sigaction act;
+	// static struct sigaction act_alrm;
 
 	/* set up handler for SIGINT, SIGHUP, SIGTERM */
 	/*
@@ -452,125 +568,150 @@ void setsignalhandlers() {
 	sigemptyset (&new_set);
 	sigemptyset (&old_set);
 	sigaddset (&new_set, SIGALRM);
-	
+
 	*/
 	return;
 }
 
-
-void daemonize() {
+void daemonize()
+{
 	pid_t pid, sid;
 	int i;
 
-	if(getppid()==1) return; /* already a daemon */
+	if (getppid() == 1)
+		return; /* already a daemon */
 
 	/* Fork off the parent process */
 	pid = fork();
-	if (pid < 0) {
+	if (pid < 0)
+	{
 		/* Log any failure */
 		exit(EXIT_FAILURE);
 	}
 	/* If we got a good PID, then we can exit the parent process. */
-	if (pid > 0) {
+	if (pid > 0)
+	{
 		exit(EXIT_SUCCESS);
 	}
 
 	/* child (daemon) continues */
 	/* Create a new SID for the child process */
 	sid = setsid();
-	if (sid < 0) {
+	if (sid < 0)
+	{
 		/* Log any failure */
 		exit(EXIT_FAILURE);
 	}
 
 	/* Handle standard file descriptors */
-	for (i=getdtablesize();i>=0;--i) close(i); /* close all descriptors */
-	i=open("/dev/null",O_RDWR); dup(i); dup(i); /* handle standard I/O */
+	for (i = getdtablesize(); i >= 0; --i)
+		close(i); /* close all descriptors */
+	i = open("/dev/null", O_RDWR);
+	dup(i);
+	dup(i); /* handle standard I/O */
 
 	CONSOLE_IS_SOCKET = 1;
 }
 
-
-
-void start_threads(){
-#if _0_	
+void start_threads()
+{
+#if _0_
 	pthread_t thread_id;
 	/* CPU Thread */
-	thread_id = add_thread(&cpu_thread,1);
-	if (debug) fprintf(debugfile,"Added thread id: %d as cpu_thread\n",(int)thread_id);
-	if (debug) fflush(debugfile);
+	thread_id = add_thread(&cpu_thread, 1);
+	if (debug)
+		fprintf(debugfile, "Added thread id: %d as cpu_thread\n", (int)thread_id);
+	if (debug)
+		fflush(debugfile);
 
-	thread_id = add_thread(&signal_thread,1);
-	if (debug) fprintf(debugfile,"Added thread id: %d as signal_thread\n",(int)thread_id);
-	if (debug) fflush(debugfile);
+	thread_id = add_thread(&signal_thread, 1);
+	if (debug)
+		fprintf(debugfile, "Added thread id: %d as signal_thread\n", (int)thread_id);
+	if (debug)
+		fflush(debugfile);
 
-	thread_id = add_thread(&mopc_thread,1);
-	if (debug) fprintf(debugfile,"Added thread id: %d as mopc_thread\n",(int)thread_id);
-	if (debug) fflush(debugfile);
+	thread_id = add_thread(&mopc_thread, 1);
+	if (debug)
+		fprintf(debugfile, "Added thread id: %d as mopc_thread\n", (int)thread_id);
+	if (debug)
+		fflush(debugfile);
 
-	thread_id = add_thread(&rtc_20,0);
-	if (debug) fprintf(debugfile,"Added thread id: %d as rtc_20\n",(int)thread_id);
-	if (debug) fflush(debugfile);
+	thread_id = add_thread(&rtc_20, 0);
+	if (debug)
+		fprintf(debugfile, "Added thread id: %d as rtc_20\n", (int)thread_id);
+	if (debug)
+		fflush(debugfile);
 
-	thread_id = add_thread(&panel_thread,0);
-	if (debug) fprintf(debugfile,"Added thread id: %d as panel_thread\n",(int)thread_id);
-	if (debug) fflush(debugfile);
+	thread_id = add_thread(&panel_thread, 0);
+	if (debug)
+		fprintf(debugfile, "Added thread id: %d as panel_thread\n", (int)thread_id);
+	if (debug)
+		fflush(debugfile);
 
-	thread_id = add_thread(&floppy_thread,0);
-	if (debug) fprintf(debugfile,"Added thread id: %d as floppy_thread\n",(int)thread_id);
-	if (debug) fflush(debugfile);
+	thread_id = add_thread(&floppy_thread, 0);
+	if (debug)
+		fprintf(debugfile, "Added thread id: %d as floppy_thread\n", (int)thread_id);
+	if (debug)
+		fflush(debugfile);
 
-	thread_id = add_thread(&hawk_thread,0);
-	if (debug) fprintf(debugfile,"Added thread id: %d as hawk_thread\n",(int)thread_id);
-	if (debug) fflush(debugfile);
+	thread_id = add_thread(&hawk_thread, 0);
+	if (debug)
+		fprintf(debugfile, "Added thread id: %d as hawk_thread\n", (int)thread_id);
+	if (debug)
+		fflush(debugfile);
 
-
-
-	if(CONSOLE_IS_SOCKET){
-		thread_id = add_thread(&console_socket_thread,0);
-	} else {
-		thread_id = add_thread(&console_stdio_thread,0);
+	if (CONSOLE_IS_SOCKET)
+	{
+		thread_id = add_thread(&console_socket_thread, 0);
+	}
+	else
+	{
+		thread_id = add_thread(&console_stdio_thread, 0);
 	}
 
-	if(PANEL_PROCESSOR){
-		thread_id = add_thread(&panel_processor_thread,0);
-		if (debug) fprintf(debugfile,"Added thread id: %d as panel_processor_thread\n",(int)thread_id);
-		if (debug) fflush(debugfile);
+	if (PANEL_PROCESSOR)
+	{
+		thread_id = add_thread(&panel_processor_thread, 0);
+		if (debug)
+			fprintf(debugfile, "Added thread id: %d as panel_processor_thread\n", (int)thread_id);
+		if (debug)
+			fflush(debugfile);
 	}
 
-	if (debug) fprintf(debugfile,"Added thread id: %d as console_socket/stdio_thread\n",(int)thread_id);
-	if (debug) fflush(debugfile);
-#endif	
+	if (debug)
+		fprintf(debugfile, "Added thread id: %d as console_socket/stdio_thread\n", (int)thread_id);
+	if (debug)
+		fflush(debugfile);
+#endif
 }
 
-
-
-void setup_cpu(){
+void setup_cpu()
+{
 	/* initialize an empty register set */
-	gReg=calloc(1,sizeof(struct CpuRegs));
+	gReg = calloc(1, sizeof(struct CpuRegs));
 	/* initialize an empty pagetable */
-	gPT=calloc(1,sizeof(union NewPT));
+	gPT = calloc(1, sizeof(union NewPT));
 	/* Initialize IO handler functions */
 	IO_Init();
 
 	/* Initialize volatile memory to zero */
 	memset(&VolatileMemory, 0, sizeof(VolatileMemory));
 
-	setbit(_STS,_O,1);
-	setbit_STS_MSB(_N100,1);
-	gCSR = 1<<2;	/* this bit sets the cache as not available */
+	setbit(_STS, _O, 1);
+	setbit_STS_MSB(_N100, 1);
+	gCSR = 1 << 2; /* this bit sets the cache as not available */
 
 	/* Set cpu as running for now. Probably should depend on settings */
 	CurrentCPURunMode = RUN;
-	instr_counter=0;
+	instr_counter = 0;
 
 	// Allocate ShadowMemory for pagetables
 	CreatePagingTables();
 
 	/* OK lets set up the parsing for our current cpu before we start it. */
-	Setup_Instructions(); 
-	
-	gALD = 01560;// oct 1560 (ALD position 4, Binary load from 1560) // Floppy
+	Setup_Instructions();
+
+	gALD = 01560; // oct 1560 (ALD position 4, Binary load from 1560) // Floppy
 }
 
 void cleanup_cpu()
@@ -579,18 +720,29 @@ void cleanup_cpu()
 	DestroyPagingTables();
 }
 
-void program_load(){
-	switch(BootType){
+void program_load()
+{
+	switch (BootType)
+	{
 	case BP:
 		bp_load();
 		gPC = (CONFIG_OK) ? STARTADDR : 0;
 		break;
 	case BPUN:
-		bpun_load();
-		gPC = (CONFIG_OK) ? STARTADDR : 0;
+		// bpun_load();
+		{
+			int bootaddress = LoadBPUN("testdisk.image");
+			if (bootaddress < 0)
+			{
+				printf("Error loading BPUN file\n");
+				exit(1);
+			}
+
+			gPC = (CONFIG_OK) ? bootaddress : 0;
+		}
 		break;
 	case FLOPPY:
-		sectorread(0,0,1,(ushort *)&VolatileMemory);
+		sectorread(0, 0, 1, (ushort *)&VolatileMemory);
 		gPC = 0;
 		break;
 	}

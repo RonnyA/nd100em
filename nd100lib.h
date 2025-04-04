@@ -69,7 +69,9 @@ extern char *BIGDISK_IMAGE_NAME;
 
 struct termios savetty;
 
-
+bool CreatePagingTables(); 
+void DestroyPagingTables();
+void Setup_Instructions ();
 
 
 
