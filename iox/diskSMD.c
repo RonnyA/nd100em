@@ -37,7 +37,7 @@ void DiskSMD_Init(DiskInfo *disk, uint8_t unit, char* diskFileName)
         disk->diskFileName = diskFileName;
     }
 
-    disk->file = fopen(disk->diskFileName, "rb");
+    disk->file = fopen(disk->diskFileName, "rb+");
 
     if (!disk->file) {
         printf("Error: Could not open disk file %s\n", disk->diskFileName);
