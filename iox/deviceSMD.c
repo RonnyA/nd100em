@@ -23,6 +23,9 @@
 #include <string.h>
 #include "deviceSMD.h"
 
+//#define DEBUG_DETAIL
+#define DEBUG_HIGH_LEVEL
+
 static void SMD_Reset(Device *self)
 {
     SMDData *data = (SMDData *)self->deviceData;
@@ -50,7 +53,9 @@ static uint16_t SMD_Read(Device *self, uint32_t address)
     uint32_t reg = Device_RegisterAddress(self, address);
     uint16_t value = 0;
 
-    //printf("SMD::SMD_Read called [%o] reg = %o\n", address, reg);
+#ifdef DEBUG_DETAIL
+    printf("SMD::SMD_Read called [%o] reg = %o\n", address, reg);
+#endif
 
     switch (reg)
     {
@@ -253,14 +258,20 @@ static uint16_t SMD_Read(Device *self, uint32_t address)
         break;
     }
 
-    //printf("SMD::SMD_Read reg = %o returned %o\n", reg, value);
+#ifdef DEBUG_DETAIL
+    printf("SMD::SMD_Read reg = %o returned %o\n", reg, value);
+#endif
+
     return value;
 }
 
 static void SMD_Write(Device *self, uint32_t address, uint16_t value)
 {
     uint32_t reg = Device_RegisterAddress(self, address);
-    //printf("SMD::SMD_Write called [%o] reg = %o\n", reg, value);
+
+#ifdef DEBUG_DETAIL
+    printf("SMD::SMD_Write called [%o] reg = %o\n", reg, value);
+#endif
 
     SMDData *data = (SMDData *)self->deviceData;
     // if (!data || !data->regs.selectedDisk) return;
@@ -350,7 +361,9 @@ static void SMD_Write(Device *self, uint32_t address, uint16_t value)
                     15		Register multiplex bit
         */
 
-        //printf("SMD::SMD_LoadControlWord called [%o] = %o\n", address, value);
+#ifdef DEBUG_DETAIL
+        printf("SMD::SMD_LoadControlWord called [%o] = %o\n", address, value);
+#endif
 
         data->controlRegister.raw = value;
 
@@ -570,7 +583,10 @@ static uint16_t SMD_Ident(Device *self, uint16_t level)
     if (!self)
         return 0;
 
-    // printf("SMD::IDENT called with level %d\n", level);
+#ifdef DEBUG_DETAIL
+    printf("SMD::IDENT called with level %d\n", level);
+#endif
+
     if ((self->interruptBits & (1 << level)) != 0)
     {
         SMDData *data = (SMDData *)self->deviceData;
@@ -582,8 +598,11 @@ static uint16_t SMD_Ident(Device *self, uint16_t level)
 }
 
 static void ExecuteGO(Device *self)
-{
-    //printf("SMD::ExecuteGO called\n");
+{    
+
+#ifdef DEBUG_DETAIL
+    printf("SMD::ExecuteGO called\n");
+#endif
 
     if (!self)
         return;
@@ -626,30 +645,37 @@ static void ExecuteGO(Device *self)
 
     // Check if disk is write protected for write operations
     if (data->regs.selectedDisk->diskIsWriteProtected &&
-        (data->regs.deviceOperation == DEVICE_OP_WRITE_TRANSFER ||
-         data->regs.deviceOperation == DEVICE_OP_WRITE_FORMAT))
+        (data->controlRegister.bits.deviceOperation == DEVICE_OP_WRITE_TRANSFER ||
+         data->controlRegister.bits.deviceOperation == DEVICE_OP_WRITE_FORMAT))
     {
         data->regs.selectedDisk->diskUnitNotReady = true;
         HandleError(self, DISK_ERR_WRITE_PROTECT_ERROR); // WRITE_PROTECT_ERROR
         return;
     }
 
-    FILE *file = data->regs.selectedDisk->file;
-    if (!file)
+    
+    if (!data->regs.selectedDisk->file )
     {
         data->regs.selectedDisk->file = fopen(data->regs.selectedDisk->diskFileName, "rb+");
-        if (!file)
+        if (!data->regs.selectedDisk->file)
         {
             printf("Failed to open file %s\n", data->regs.selectedDisk->diskFileName);
             HandleError(self, DISK_ERR_READ_ERROR); // READ_ERROR
             return;
         }
-    }
+    }  
 
-    //printf("SMD::ExecuteGO Seek to %ld\n", position);
-    int seekRes = Device_IO_Seek(self, file, position);
+#ifdef DEBUG_DETAIL
+    printf("SMD::ExecuteGO Seek to %ld\n", position);
+#endif
+
+   
+    int seekRes = Device_IO_Seek(self, data->regs.selectedDisk->file , position);
     if (seekRes < 0) {
-        //printf("SMD::ExecuteGO Seek failed\n");
+
+#ifdef DEBUG_DETAIL
+        printf("SMD::ExecuteGO Seek failed\n");
+#endif
         HandleError(self, DISK_ERR_SEEK_ERROR); // SEEK_ERROR
         return;
     }
@@ -657,25 +683,33 @@ static void ExecuteGO(Device *self)
     uint32_t wordCounter = (uint32_t)(data->regs.wordCounterHI << 16 | data->regs.wordCounter);
     uint32_t coreAddress = (uint32_t)(data->regs.coreAddressHiBits << 16 | data->regs.coreAddress);
 
+    if ((position == 387072) && (wordCounter == 9216))
+    {        
+        printf("SMD::ExecuteGO WC[%d] Core Address [%d]\n", wordCounter, coreAddress);
+    }
+
+
     // Handle different device operations
-    switch (data->regs.deviceOperation)
+    switch (data->controlRegister.bits.deviceOperation)
     {
     case DEVICE_OP_READ_TRANSFER:
 
-        //printf("SMD::DEVICE_OP_READ_TRANSFER WC[%d] COA[%d]\n", wordCounter, coreAddress);
+#ifdef DEBUG_HIGH_LEVEL
+        printf("SMD::DEVICE_OP_READ_TRANSFER WC[%d] Core Address [%d]\n", wordCounter, coreAddress);
+#endif
         while (wordCounter > 0)
         {
             // Read word from disk
-            uint32_t data;
-            data = Device_IO_ReadWord(self, file);
-            if (data < 0)
+            uint32_t readData;
+            readData = Device_IO_ReadWord(self, data->regs.selectedDisk->file );
+            if (readData < 0)
             {
                 HandleError(self, DISK_ERR_READ_ERROR); // READ_ERROR
                 return;
             }
 
             // Write to memory (DMA)
-            Device_DMAWrite(coreAddress, (uint16_t)data);
+            Device_DMAWrite(coreAddress, (uint16_t)readData);
 
             coreAddress = IncrementCoreAddress(regs);
             wordCounter = DecrementWordCounter(regs);
@@ -685,27 +719,27 @@ static void ExecuteGO(Device *self)
         break;
 
     case DEVICE_OP_WRITE_TRANSFER:
-
-        //printf("SMD::DEVICE_OP_WRITE_TRANSFER\n");
-
+        
+#ifdef DEBUG_HIGH_LEVEL
+        printf("SMD::DEVICE_OP_WRITE_TRANSFER WC[%d] Core Address [%d]\n", wordCounter, coreAddress);
+#endif
         while (wordCounter > 0)
         {
-            // Read from memory (DMA)
-            uint32_t data;
-            data = Device_DMARead(coreAddress);
+            // Read from memory (DMA)   
+            uint32_t writeData;
+            writeData = Device_DMARead(coreAddress);
 
-            if (data < 0)
+            if (writeData < 0)
             {
                 HandleError(self, DISK_ERR_READ_ERROR); // DMA READ ERROR??
                 return;
             }
             // Write word to disk
-            if (Device_IO_WriteWord(self, regs->selectedDisk->file, (uint16_t)data) < 0)
+            if (Device_IO_WriteWord(self, data->regs.selectedDisk->file , (uint16_t)writeData) < 0)
             {
                 HandleError(self, DISK_ERR_READ_ERROR); // WRITE_ERROR
                 return;
-            }
-            Device_IO_WriteWord(self, regs->selectedDisk->file, data);
+            }            
 
             coreAddress = IncrementCoreAddress(regs);
             wordCounter = DecrementWordCounter(regs);
@@ -715,29 +749,20 @@ static void ExecuteGO(Device *self)
 
     case DEVICE_OP_READ_PARITY:
 
-        //printf("SMD::DEVICE_OP_READ_PARITY\n");
+#ifdef DEBUG_HIGH_LEVEL
+        printf("SMD::DEVICE_OP_READ_PARITY WC[%d] Core Address [%d]\n", wordCounter, coreAddress);
+#endif        
         // Read and check parity without transferring data
-
         while (wordCounter > 0)
         {
             // Read word from disk
-            uint32_t data;
-            data = Device_IO_ReadWord(self, file);
-            if (data < 0)
+            uint32_t readData;
+            readData = Device_IO_ReadWord(self, data->regs.selectedDisk->file );
+            if (readData < 0)
             {
                 HandleError(self, DISK_ERR_READ_ERROR); // READ_ERROR
-                return;
-            }
+                return;            }
 
-            uint32_t ram_data;
-            ram_data = Device_DMARead(coreAddress);
-
-            // Compare data
-            if (data != ram_data)
-            {
-                HandleError(self, DISK_ERR_COMPARER_ERROR); // COMPARER_ERROR
-                return;
-            }
             coreAddress = IncrementCoreAddress(regs);
             wordCounter = DecrementWordCounter(regs);
         }
@@ -747,7 +772,9 @@ static void ExecuteGO(Device *self)
 
     case DEVICE_OP_COMPARE_TRANSFER:
 
-        //printf("SMD::DEVICE_OP_COMPARE_TRANSFER\n");
+#ifdef DEBUG_HIGH_LEVEL
+        printf("SMD::DEVICE_OP_COMPARE_TRANSFER WC[%d] Core Address [%d]\n", wordCounter, coreAddress);
+#endif        
 
         while (wordCounter > 0)
         {
@@ -778,7 +805,9 @@ static void ExecuteGO(Device *self)
         break;
 
     case DEVICE_OP_INITIATE_SEEK:
-        //printf("SMD::DEVICE_OP_INITIATE_SEEK\n");
+#ifdef DEBUG_HIGH_LEVEL
+        printf("SMD::DEVICE_OP_INITIATE_SEEK: NOT IMPLEMENTED\n");
+#endif
         // Seek operation initiated
         data->seekCondition.bits.seekError =0;
 
@@ -788,12 +817,17 @@ static void ExecuteGO(Device *self)
     case DEVICE_OP_WRITE_FORMAT:
         // Format operation
         // TODO: Implement disk formatting
-        //printf("SMD::DEVICE_OP_WRITE_FORMAT\n");
+
+#ifdef DEBUG_HIGH_LEVEL
+        printf("SMD::DEVICE_OP_WRITE_FORMAT: NOT IMPLEMENTED\n");
+#endif
         Device_QueueIODelay(self, IODELAY_HDD_SMD, (IODelayedCallback)SMDReadEnd, data->regs.selectedDisk->unit, self->interruptLevel);
         break;
 
     case DEVICE_OP_SEEK_COMPLETE:
-        //printf("SMD::DEVICE_OP_SEEK_COMPLETE\n");
+#ifdef DEBUG_HIGH_LEVEL
+        printf("SMD::DEVICE_OP_SEEK_COMPLETE\n");
+#endif
         regs->selectedDisk->onCylinder = true;
         data->seekCondition.bits.seekError =0;
         data->seekCondition.bits.seekComplete = 1 << regs->selectedUnit;
@@ -802,7 +836,9 @@ static void ExecuteGO(Device *self)
         break;
 
     case DEVICE_OP_RETURN_TO_ZERO:
-        //printf("SMD::DEVICE_OP_RETURN_TO_ZERO\n");
+#ifdef DEBUG_HIGH_LEVEL
+        printf("SMD::DEVICE_OP_RETURN_TO_ZERO\n");
+#endif
         data->seekCondition.bits.seekError =0;
         regs->selectedDisk->onCylinder = 1;
         data->seekCondition.bits.seekComplete = 1 << regs->selectedUnit;
@@ -811,13 +847,17 @@ static void ExecuteGO(Device *self)
         break;
 
     case DEVICE_OP_RUN_ECC:
-        //printf("SMD::DEVICE_OP_RUN_ECC\n");
+#ifdef DEBUG_HIGH_LEVEL
+        printf("SMD::DEVICE_OP_RUN_ECC: NOT IMPLEMENTED\n");
+#endif
         // Run ECC operation
         // TODO: Implement ECC operation
         break;
 
     case DEVICE_OP_SELECT_RELEASE:
-        //printf("SMD::DEVICE_OP_SELECT_RELEASE\n");
+#ifdef DEBUG_HIGH_LEVEL
+        printf("SMD::DEVICE_OP_SELECT_RELEASE\n");
+#endif
         // Release disk selection
         regs->selectedDisk = NULL;
         break;
@@ -831,6 +871,10 @@ static bool SMDReadEnd(Device *self, int drive)
     SMDData *data = (SMDData *)self->deviceData;
     if (!data)
         return false;
+
+#ifdef DEBUG_DETAIL
+    printf("SMD::SMDReadEnd drive %d\n", drive);
+#endif
 
     data->statusRegister.bits.active = 0;
     data->statusRegister.bits.readyForTransfer = 1;
@@ -893,7 +937,9 @@ static void HandleError(Device *self, DiskError error)
     SMDData *data = (SMDData *)self->deviceData;
 
 
+#ifdef DEBUG_DETAIL
     printf("SMD::HandleError called %d\n", error);
+#endif
     switch (error)
     {
     case DISK_ERR_NO_DISK_ATTACHED: // NO_DISK_ATTACHED

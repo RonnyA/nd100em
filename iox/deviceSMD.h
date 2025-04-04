@@ -119,7 +119,7 @@ typedef union
         uint16_t addressBit17 : 1;             // Bit 6: Address bit 17 - Extension of core address register
         uint16_t unitSelect : 3;               // Bits 7-9: Unit select (maximum 4 units)
         uint16_t marginalRecoveryCycle : 1;    // Bit 10: Marginal recovery cycle
-        uint16_t deviceOperationCode : 4;      // Bits 11-14: Device operation code
+        DeviceOperation deviceOperation : 4;   // Bits 11-14: Device operation code
         uint16_t registerMultiplexBit : 1;     // Bit 15: Register multiplex bit
     } bits;
 } SMDControlRegister;
@@ -227,9 +227,6 @@ typedef struct {
     uint16_t eccControlHI;
     uint16_t eccPatternRegister;
     uint16_t eccCount;
-
-    // execution control    
-    DeviceOperation deviceOperation;
 
     // Disk info
     int maxUnits;
