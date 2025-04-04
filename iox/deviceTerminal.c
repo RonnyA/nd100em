@@ -294,8 +294,10 @@ static void Terminal_Write(Device *self, uint32_t address, uint16_t value)
 
         char c = (char)(value);
 
-        if (data->inputControl.bits.characterLength != 0)
-            c &= 0x7F;
+        // seems like we need to strip the parity bit always
+        //if (data->inputControl.bits.characterLength != 0)
+        
+        c &= 0x7F;
 
         // Clear interrupt status
         data->outputStatus.bits.readyForTransfer = false;
