@@ -124,6 +124,9 @@ void trace_instr(ushort instr){
 
 	extract_opcode(instr);
 
+    char *P = STS_PONI ? "P" : " ";
+    char *I = STS_IONI ? "I" : " ";
+    
 	if(trace & 0x01) {
 		OpToStr(disasm_str,instr);
 		fprintf(tracefile,"#c (i,l,a,d,c) #v# (\"%d\",\"%d\",\"%06o\",\"%06o\",\"%s\");\n",
@@ -131,11 +134,11 @@ void trace_instr(ushort instr){
 
 		if (opcode == 0140600 ){ /* EXR */
 			OpToStr(disasm_str,instr);
-			fprintf(trace2file,"| %08d | %02d | %06o | %06o | %s |\n",
-				(int)instr_counter,CurrLEVEL,gPC,instr,disasm_str);
+			fprintf(trace2file,"| %08d | %s%s | %02d | %06o | %06o | %s |\n",
+				(int)instr_counter,P,I,CurrLEVEL,gPC,instr,disasm_str);
 		} else
-			fprintf(trace2file,"| %08d | %02d | %06o | %06o | %s |\n",
-				(int)instr_counter,CurrLEVEL,gPC,instr,disasm_str);
+			fprintf(trace2file,"| %08d | %s%s | %02d | %06o | %06o | %s |\n",
+				(int)instr_counter,P,I,CurrLEVEL,gPC,instr,disasm_str);
 	}
 }
 
