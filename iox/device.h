@@ -36,8 +36,8 @@ extern void WritePhysicalMemory(uint32_t physicalAddress, uint16_t value, bool p
 #define MAX_DEVICE_NAME 64
 
 // IO Delay definitions
-#define IODELAY_TERMINAL 1000
-#define IODELAY_FLOPPY 3000
+#define IODELAY_TERMINAL 100
+#define IODELAY_FLOPPY 100
 #define IODELAY_HDD 100
 #define IODELAY_HDD_SMD 100
 #define IODELAY_SLOW 100

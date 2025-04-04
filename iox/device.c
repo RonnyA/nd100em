@@ -265,10 +265,12 @@ int32_t Device_IO_WriteWord(Device *dev, FILE *f, uint16_t data)
     uint8_t hi = (data >> 8) & 0xFF;
     uint8_t lo = data & 0xFF;
 
-    if (putc(hi, f) == EOF)
+    if (putc(hi, f) == EOF || putc(lo, f) == EOF) {
+        if (ferror(f)) {
+            perror("Write failed.");
+        }
         return -1;
-    if (putc(lo, f) == EOF)
-        return -1;
+    }
 
     return 0;
 }
