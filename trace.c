@@ -33,6 +33,28 @@
 #include "nd100.h"
 #include "trace.h"
 
+char tracename[] = "tracefile.log";
+char tracetype[] = "a";
+FILE *tracefile = NULL;
+int trace = 0;
+
+char trace2name[] = "trace2file.log";
+char trace2type[] = "a";
+FILE *trace2file = NULL;
+
+char disasm_fname[] = "nd100em.disasm.log";
+char disasm_ftype[] = "a";
+FILE *disasm_file = NULL;
+
+int disasm_ctr = 0;
+
+struct disasm_entry *disasm_arr[65536];
+struct disasm_entry *(*p_DIS)[] = &disasm_arr;
+
+volatile int ts_counter = 0;
+volatile int ts_step = 0;
+char ts_block[MAXTSARR][MAXTSSTR];
+
 /*
  * Routine for tracing steps in instructions, this one for before doing instruction
  * here we create strings with register=value for the compressed SQL output.

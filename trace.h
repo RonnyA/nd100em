@@ -20,23 +20,22 @@
  * distribution in the file COPYING); if not, see <http://www.gnu.org/licenses/>.
  */
 
-char tracename[]="tracefile.log";
-char tracetype[]="a";
-FILE *tracefile;
-int trace;
+extern char tracename[];
+extern char tracetype[];
+extern FILE *tracefile;
+extern int trace;
 
+extern char trace2name[];
+extern char trace2type[];
+extern FILE *trace2file;
 
-char trace2name[]="trace2file.log";
-char trace2type[]="a";
-FILE *trace2file;
+extern char disasm_fname[];
+extern char disasm_ftype[];
+extern FILE *disasm_file;
 
-char disasm_fname[]="nd100em.disasm.log";
-char disasm_ftype[]="a";
-FILE *disasm_file;
-
-
-int DISASM;
-int disasm_ctr;
+/* Disassembler */
+extern int DISASM;
+extern int disasm_ctr;
 
 struct disasm_entry {
 	bool isdata;
@@ -49,14 +48,14 @@ struct disasm_entry {
 	char exr[32];
 	ushort theword;
 };
-struct disasm_entry *disasm_arr[65536];
-struct disasm_entry *(*p_DIS)[] = &disasm_arr;
+extern struct disasm_entry *disasm_arr[65536];
+extern struct disasm_entry *(*p_DIS)[];
 
-volatile int ts_counter = 0;
-volatile int ts_step = 0;
+extern volatile int ts_counter;
+extern volatile int ts_step;
 #define MAXTSARR 32
 #define MAXTSSTR 256
-char ts_block[MAXTSARR][MAXTSSTR];
+extern char ts_block[MAXTSARR][MAXTSSTR];
 
 extern char *regn[];
 extern double instr_counter;
