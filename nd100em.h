@@ -23,7 +23,12 @@
 #ifndef ND100EM_H
 #define ND100EM_H
 
+#include <stdio.h>
+#include <stdint.h>
+#include <stdbool.h>
 #include <sys/resource.h>
+#include <termios.h>
+#include "nd100.h"
 
 extern int trace;
 extern int debug;
@@ -34,8 +39,8 @@ extern ushort PANEL_PROCESSOR;
 extern double instr_counter;
 extern struct ThreadChain *gThreadChain;
 
-float usertime,systemtime,totaltime;
-struct rusage *used;
+extern float usertime, systemtime, totaltime;
+extern struct rusage *used;
 
 extern int octalstr_to_integer(char *str);
 extern int mysleep(int sec, int usec);
