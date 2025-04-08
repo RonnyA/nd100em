@@ -2,7 +2,8 @@
  * nd100em - ND100 Virtual Machine
  *
  * Copyright (c) 2006 Per-Olof Astrom
- * Copyright (c) 2006-2008 Roger Abrahamsson
+ * Copyright (c) 2006-2008 Roger 
+ * Copyright (c) 2025 Ronny Hansen
  *
  * This file is originated from the nd100em project.
  *
@@ -62,5 +63,5 @@ int LoadBPUN(const char* filename);
 
 
 // Physical memory functions in cpu_mms.c
-extern int ReadPhysicalMemory(uint32_t physicalAddress, bool privileged);
-extern void WritePhysicalMemory(uint32_t physicalAddress, uint16_t value, bool privileged);
+extern int ReadPhysicalMemory(int physicalAddress, bool privileged);
+extern void WritePhysicalMemory(int physicalAddress, uint16_t value, bool privileged);

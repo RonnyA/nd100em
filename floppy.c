@@ -27,8 +27,6 @@
 #include "floppy.h"
 
 
-
-
 /*
  * int sectorread (cyl, side, sector, *addr)
  * cyl can be 0-76, side 0-1, sector 1-8...
@@ -77,10 +75,23 @@ int sectorread (char cyl, char side, char sector, unsigned short *addr) {
 	offset+=8;
 
 	floppy_file=fopen(floppyimage,loadtype);
-	fseek(floppy_file,offset,SEEK_SET);
+	if (floppy_file == NULL) {
+		printf("Error: Could not open floppy image file %s\n", floppyimage);
+		return -1;
+	}
+	
+	if (fseek(floppy_file, offset, SEEK_SET) != 0) {
+		printf("Error: Could not seek to offset %d in floppy image\n", offset);
+		fclose(floppy_file);
+		return -1;
+	}
 
 	while(i<512) {
-		fread(&tmp,2,1,floppy_file);
+		if (fread(&tmp, 2, 1, floppy_file) != 1) {
+			printf("Error: Could not read from floppy image at offset %d\n", offset + i*2);
+			fclose(floppy_file);
+			return -1;
+		}
 		tmp2=(tmp & 0xff00)>>8;
 		tmp2= tmp2 | ((tmp & 0x00ff) << 8);
 		*addr=tmp2;
