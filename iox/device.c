@@ -101,6 +101,17 @@ uint16_t Device_Tick(Device *dev)
     return dev->Tick(dev);
 }
 
+// Loads boot code from disk to memory. Returns the boot address, or -1 if error
+int32_t Device_Boot(Device *dev, uint16_t device_id)
+{
+    if (!dev)
+        return -1;
+    if (dev->Boot == NULL)
+        return -1; // No boot function defined
+
+    return dev->Boot(dev, device_id);
+}
+
 bool Device_IsInAddress(Device *dev, uint32_t address)
 {
     if (!dev)

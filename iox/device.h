@@ -27,8 +27,8 @@
 
 
 // Physical memory functions in cpu_mms.c
-extern int ReadPhysicalMemory(uint32_t physicalAddress, bool privileged);
-extern void WritePhysicalMemory(uint32_t physicalAddress, uint16_t value, bool privileged);
+extern int ReadPhysicalMemory(int physicalAddress, bool privileged);
+extern void WritePhysicalMemory(int physicalAddress, uint16_t value, bool privileged);
 
 
 
@@ -37,11 +37,11 @@ extern void WritePhysicalMemory(uint32_t physicalAddress, uint16_t value, bool p
 
 // IO Delay definitions
 #define IODELAY_TERMINAL 100
-#define IODELAY_FLOPPY 100
-#define IODELAY_HDD 100
-#define IODELAY_HDD_SMD 100
-#define IODELAY_SLOW 100
-#define IODELAY_SCSI_SHORT 100
+#define IODELAY_FLOPPY 300
+#define IODELAY_HDD 10
+#define IODELAY_HDD_SMD 10
+#define IODELAY_SLOW 10
+#define IODELAY_SCSI_SHORT 10
 #define IODELAY_SCSI_TIMEOUT 0xFFFF
 
 // Parity table size
@@ -81,6 +81,7 @@ typedef struct Device {
     // Device functions
     void (*Reset)(struct Device *self);
     uint16_t (*Tick)(struct Device *self);
+    int (*Boot)(struct Device *self, uint16_t device_id);
     uint16_t (*Read)(struct Device *self, uint32_t address);
     void (*Write)(struct Device *self, uint32_t address, uint16_t value);
     uint16_t (*Ident)(struct Device *self, uint16_t level);
@@ -124,6 +125,10 @@ int32_t Device_IO_Seek(Device *dev, FILE *f, long offset);
 uint32_t Device_DMAWrite(uint32_t coreAddress, uint16_t data);
     
 int32_t Device_DMARead(uint32_t coreAddress);
+
+
+// Boot functions
+int32_t Device_Boot(Device *dev, uint16_t device_id);
 
 // Parity functions
 extern const uint8_t Device_OddParityTable[PARITY_TABLE_SIZE];
