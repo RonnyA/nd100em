@@ -63,5 +63,5 @@ dkms.conf
 nd100em
 
 
-
+# ignore the executable files
 nd100em
