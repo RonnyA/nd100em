@@ -127,8 +127,8 @@ typedef signed long int slong;
 /* Lets use the full 16MWord space now (32MB ram in host)*/
 //#define MEMPTSIZE 16384
 
-// Lets just use 2MB for now
-#define MEMPTSIZE 2048 //8192
+// Lets just use 4MW (8MB) for now.. seems like 'CONFIG' is having some strange issues with 16MW (32MB) - at least detection is saying  "Total memory size....: 65504.000 Mbytes"
+#define MEMPTSIZE 1024*8
 
 /* Volatile Memory
  * Fixed to MEMPTSIZE KWords for now.
