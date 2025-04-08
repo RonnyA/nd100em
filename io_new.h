@@ -21,6 +21,7 @@
 #ifndef IO_NEW_H
 #define IO_NEW_H
 
+#include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include "iox/devicemanager.h"
@@ -37,11 +38,11 @@ extern void device_interrupt(ushort interruptBits);
 
 extern struct CpuRegs *gReg;
 
-char *FDD_IMAGE_NAME;
-bool FDD_IMAGE_RO;
+extern char *FDD_IMAGE_NAME;
+extern bool FDD_IMAGE_RO;
 
-char *HAWK_IMAGE_NAME;
+extern char *HAWK_IMAGE_NAME;
 
-char *BIGDISK_IMAGE_NAME;
+extern char *BIGDISK_IMAGE_NAME;
 
 #endif // IO_NEW_H 
