@@ -136,7 +136,7 @@ struct display_panel
 	int function_mode; // Panel Processor Functtion Mode Register (not used yet..)
 };
 
-struct display_panel *gPAP;
+extern struct display_panel *gPAP;
 extern struct CpuRegs *gReg; // cpu.c
 
 void ProcessTerminalPanc();
