@@ -24,7 +24,9 @@
 #include <string.h>
 #include "deviceRTC.h"
 
-#define TICKS_20MS 10550  // Ticks for 20ms timer (adjusted for stability)
+#define TICKS_20MS 10550 // Ticks for 20ms timer (adjusted for stability)
+//#define DEBUG_RTC
+//#define DEBUG_RTC_TICK
 
 static void RTC_Reset(Device *self) {
     RTCData *data = (RTCData *)self->deviceData;
@@ -44,6 +46,10 @@ static void RTC_ClearClockTicks(Device *self) {
     if (!data) return;
 
     data->rtcCounter = data->divisionNumberN;
+
+#ifdef DEBUG_RTC
+    printf("RTC_ClearClockTicks: %d\n", data->rtcCounter);
+#endif
 }
 
 static uint16_t RTC_Tick(Device *self) {
@@ -51,6 +57,11 @@ static uint16_t RTC_Tick(Device *self) {
     
     RTCData *data = (RTCData *)self->deviceData;
     if (!data) return 0;
+
+#ifdef DEBUG_RTC_TICK
+    printf("RTC Tick %d\n", data->rtcCounter);
+#endif 
+
 
     // Process I/O delays
     Device_TickIODelay(self);
@@ -163,6 +174,10 @@ static uint16_t RTC_Ident(Device *self, uint16_t level) {
     if ((self->interruptBits & (1 << level)) != 0) {
         RTC_ClearClockTicks(self);
         data->statusRegister.bits.interruptEnabled = false;
+
+#ifdef DEBUG_RTC
+        printf("RTC_Ident: %d\n", self->identCode);
+#endif       
         Device_SetInterruptStatus(self, false, level);
         return self->identCode;
     }
