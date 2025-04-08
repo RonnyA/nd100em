@@ -19,6 +19,7 @@ SRCS = nd100em.c \
 		iox/deviceRTC.c \
 		iox/devicePapertape.c \
 		iox/deviceFloppyPIO.c \
+		iox/deviceFloppyDMA.c \
 		iox/deviceSMD.c \
 		iox/diskSMD.c \
 		iox/deviceTerminal.c \
@@ -30,7 +31,9 @@ SRCS = nd100em.c \
 		mon.c \
 		trace.c \
 		decode.c \
-		iox/deviceFloppyDMA.c
+		retrolog.c \
+		globals.c
+		
 		
 
 # Object files
@@ -56,10 +59,11 @@ INCLUDES = nd100em.h \
 		  float.h \
 		  mon.h \
 		  trace.h \
-		  decode.h
+		  decode.h \
+		  retrolog.h
 		  
 
-all: nd100em
+all: nd100em 
 
 clean:
 	rm -f $(OBJS) nd100em core
