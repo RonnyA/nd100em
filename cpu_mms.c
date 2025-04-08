@@ -29,6 +29,7 @@
 
 
 //#define DEBUG_MMS
+//#define DEBUG_MMS_MAPPING
 
 // Global MMS type variable definition
 MMSType mmsType = MMS2; // Change this to force MMS type to 1 or 2
@@ -418,7 +419,7 @@ int mapVirtualToPhysical(uint virtualAddress, AccessMode am, bool UseAPT)
     // Find the PageTableEntry, PTe
     uint32_t pageTableEntry = GetPageTableEntry(pageTable, VPN, ptm);
 
-#ifdef DEBUG_MMS
+#ifdef DEBUG_MMS_MAPPING
     printf("mapVirtualToPhysical - PT=%d VPN=%d => Entry=0x%08X (%s)\n",  pageTable, VPN, pageTableEntry, GetPageTableEntryDebugInfo(pageTableEntry));
 #endif    
 
@@ -478,8 +479,8 @@ int mapVirtualToPhysical(uint virtualAddress, AccessMode am, bool UseAPT)
     // Calculate physical address
     int physicalAddress = (PPN << 10) | DIP;
 
-    // Check if memory is out of range
-    if (physicalAddress > ND_Memsize)
+    // Check if memory is out of range (Zero based range, so make sure it's not greater than ND_Memsize)
+    if (physicalAddress >= ND_Memsize)
     {
         UpdatePGS(pageTable, VPN, am, false);
         HandleMemoryOutOfRange(physicalAddress);
@@ -495,7 +496,7 @@ int mapVirtualToPhysical(uint virtualAddress, AccessMode am, bool UseAPT)
     }
 
     // Check for ECC Memory Parity
-    if ((gECCR & (1 << 3)) == 0)
+    if ((gECCR & (1 << 3)) == 0) // If Bit 3 is set, ECC is disabled
     {
         int eccBits = 0;
         if ((gECCR & 1 << 0) != 0) eccBits++; // Simulate memory error in bit 0
@@ -535,6 +536,12 @@ int mapVirtualToPhysical(uint virtualAddress, AccessMode am, bool UseAPT)
         }
     }
 
+#ifdef DEBUG_MMS
+    if (physicalAddress == 0)
+    {
+        printf("mapVirtualToPhysical - PT=%d VPN=%d => Entry=0x%08X (%s)\n",  pageTable, VPN, pageTableEntry, GetPageTableEntryDebugInfo(pageTableEntry));
+    }
+#endif
     return (int)physicalAddress;
 }
 
@@ -560,7 +567,7 @@ void UpdatePGS(uint pageTable, uint VPN, AccessMode am, bool permitViolation)
         }
     }
 
-    gPGS =tmpPGS;
+    setPGS(tmpPGS);    
 }
 
 // Check page protection
@@ -670,7 +677,7 @@ int ReadPhysicalMemory(int physicalAddress, bool privileged)
 {
     if (physicalAddress <0)
     {
-        printf("Memory Protection!! But it wasn't caught. Should have been aborted!\n");
+        //printf("Memory Protection!! But it wasn't caught. Should have been aborted!\n");
         return 0x00;
     }
 
@@ -682,7 +689,7 @@ int ReadPhysicalMemory(int physicalAddress, bool privileged)
     }
 
     // Check memory bounds
-    if ((physicalAddress > ND_Memsize)||(physicalAddress < 0))
+    if ((physicalAddress >= ND_Memsize)||(physicalAddress < 0))
     {
         HandleMemoryOutOfRange(physicalAddress);
         return 0x00;
@@ -701,7 +708,6 @@ void WritePhysicalMemory(int physicalAddress, uint16_t value, bool privileged)
 // Write to physical memory (with writemode to handle MSB/LSB/WORD)
 void WritePhysicalMemoryWM(int physicalAddress, uint16_t value, bool privileged, WriteMode wm)
 {
-
     if (IsAddressShadowMemory(physicalAddress, privileged))
     {
         //printf("WritePhysicalMemoryWM: Shadow Memory 0x[%4X] = 0x%4X\n", physicalAddress, value);
@@ -718,6 +724,7 @@ void WritePhysicalMemoryWM(int physicalAddress, uint16_t value, bool privileged,
     // Check memory bounds
     if ((physicalAddress > ND_Memsize)||(physicalAddress < 0))
     {
+        //printf("Memory out of range error: address %d is outside valid range [0, %d]\n", physicalAddress, ND_Memsize);
         HandleMemoryOutOfRange(physicalAddress);
         return;
     }
@@ -760,6 +767,7 @@ void HandleMemoryOutOfRange(uint physicalAddress)
 /// @param virtualAddress 
 void HandleMPV(uint virtualAddress)
 {
+    //printf("HandleMPV: %06o\n", virtualAddress);
     interrupt(14, 1 << 2); // MPV - MEMORY_PROTECTION_VIOLATION bit 2            
 }
 
@@ -767,6 +775,7 @@ void HandleMPV(uint virtualAddress)
 /// @param virtualAddress 
 void HandlePF(uint virtualAddress)
 {
+    //printf("HandlePF: %06o\n", virtualAddress);
     interrupt(14, 1 << 3); // PF - PAGE_FAULT bit 3
 }
 

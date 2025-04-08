@@ -134,6 +134,11 @@ void HandleMemoryOutOfRange(uint physicalAddress);
 void HandleMPV(uint virtualAddress);
 void HandlePF(uint virtualAddress);
 
+// Set PEA and PES
+void setPEA(ushort pea);
+void setPES(ushort pes);
+void setPGS(ushort pgs);
+
 // Global MMS type variable (extern, but could not include their .h files)
 extern MMSType mmsType;
 extern PagingTables pt;
@@ -141,4 +146,4 @@ extern struct CpuRegs *gReg; // cpu.c
 extern void interrupt(ushort lvl,ushort sub); // cpu.c
 extern _NDRAM_		VolatileMemory;
 
-#endif /* CPU_MMS_H */ 
+#endif /* CPU_MMS_H */  
