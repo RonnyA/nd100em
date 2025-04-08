@@ -40,6 +40,11 @@
 #include "io_new.h"
 #include "nd100lib.h"
 #include "floppy.h"
+#include "cpu.h"
+#include "cpu_mms.h"
+#include "trace.h"
+#include "globals.h"
+
 /*
  * IN: pointer to string of octal chars.
  * OUT: integer
@@ -225,6 +230,11 @@ int bp_load()
 	if (debug)
 		fprintf(debugfile, "BP file load:\n");
 	bin_file = fopen(bpun, loadtype);
+	if (bin_file == NULL)
+	{
+		printf("Error: Could not open file %s\n", bpun);
+		return -1;
+	}
 	fread(&VolatileMemory, 2, 65536, bin_file);
 	for (i = 0; i < 65536; i++)
 	{
@@ -238,19 +248,18 @@ int bp_load()
 	return 0;
 }
 
-int debug_open()
-{
-	debugfile = fopen(debugname, debugtype);
-	if (debugfile)
-	{
-		fprintf(debugfile, "\n-----------------NEW DEBUG---------------------------------------\n");
-	}
-	else
-	{
-		debug = 0; /* Since we failed to open the debugfile, turn off debugging. But otherwise continue. */
-	};
-	return (0);
-}
+
+int debug_open(void) {
+    if (debugname && debugtype) {
+        debugfile = fopen(debugname, debugtype);
+        if (debugfile) {
+            fprintf(debugfile, "\n-----------------NEW DEBUG---------------------------------------\n");
+            return 1;
+        }
+    }
+    debug = 0; /* Since we failed to open the debugfile, turn off debugging. But otherwise continue. */
+    return 0;
+} 
 
 void unsetcbreak(void)
 { /* prepare to exit this program. */
@@ -275,6 +284,27 @@ void setcbreak(void)
 	*/
 }
 
+void setdefaultconfig()
+{
+	// Set default configuration
+	CurrentCPUType = ND100CX;
+	BootType = SMD;
+	STARTADDR = 0;
+	debug = 0;
+	trace = 0;
+	DISASM = 0;
+	PANEL_PROCESSOR = 0;
+	DAEMON = 0;
+	emulatemon = 0;
+
+	/*
+	FDD_IMAGE_NAME = NULL;
+	FDD_IMAGE_RO = 1;
+	HAWK_IMAGE_NAME = NULL;
+	BIGDISK_IMAGE_NAME = NULL;
+	*/
+}
+
 /*
  * New config model used libconfig to load configuration file.
  */
@@ -284,6 +314,8 @@ int nd100emconf()
 	char *tmpstr;
 	config_setting_t *setting = NULL;
 
+	setdefaultconfig();
+	
 	pCFG = malloc(sizeof(struct config_t));
 	if (pCFG == NULL)
 	{
@@ -354,6 +386,10 @@ int nd100emconf()
 			else if (strcmp("floppy", tmpstr) == 0)
 			{
 				BootType = FLOPPY;
+			}
+			else if (strcmp("smd", tmpstr) == 0)
+			{
+				BootType = SMD;
 			}
 			else
 			{
@@ -500,8 +536,7 @@ int nd100emconf()
 	CONFIG_OK = 1; /* :TODO: No detailed checks of all dependant parameters yet */
 	return (0);
 }
-
-void shutdown(int signum)
+void shutdown(void)
 {
 	if (debug)
 		fprintf(debugfile, "(####) shutdown routine running\n");
@@ -515,6 +550,11 @@ void shutdown(int signum)
 		fprintf(debugfile, "(####) shutdown routine done\n");
 	if (debug)
 		fflush(debugfile);
+
+	cleanup_cpu();
+
+	// exit
+	exit(0);
 }
 
 void blocksignals()
@@ -697,7 +737,7 @@ void setup_cpu()
 	/* Initialize volatile memory to zero */
 	memset(&VolatileMemory, 0, sizeof(VolatileMemory));
 
-	setbit(_STS, _O, 1);
+	// setbit(_STS, _O, 1);
 	setbit_STS_MSB(_N100, 1);
 	gCSR = 1 << 2; /* this bit sets the cache as not available */
 
@@ -718,32 +758,56 @@ void cleanup_cpu()
 {
 	// Destroy paging tables
 	DestroyPagingTables();
+
+	// Deallocate IO memory
+	IO_Destroy();
 }
 
 void program_load()
 {
+	int bootAddress;
+	int result;
+
 	switch (BootType)
 	{
 	case BP:
-		bp_load();
+		result = bp_load();
+		if (result < 0)
+		{
+			printf("Error loading BP file\n");
+			exit(1);
+		}
 		gPC = (CONFIG_OK) ? STARTADDR : 0;
 		break;
 	case BPUN:
-		// bpun_load();
-		{
-			int bootaddress = LoadBPUN("testdisk.image");
-			if (bootaddress < 0)
-			{
-				printf("Error loading BPUN file\n");
-				exit(1);
-			}
-
-			gPC = (CONFIG_OK) ? bootaddress : 0;
-		}
+		bpun_load();
 		break;
 	case FLOPPY:
-		sectorread(0, 0, 1, (ushort *)&VolatileMemory);
+		int bootaddress = LoadBPUN("testdisk.image");
+		if (bootaddress < 0)
+		{
+			printf("Error loading BPUN file\n");
+			exit(1);
+		}
+
+		gPC = (CONFIG_OK) ? bootaddress : 0;
+
+		/*
+		result = sectorread(0, 0, 1, (ushort *)&VolatileMemory);
+		if (result < 0) {
+			printf("Error reading from floppy\n");
+			exit(1);
+		}
 		gPC = 0;
+		*/
+		break;
+	case SMD:
+		bootAddress = DeviceManager_Boot(01540);
+		if (bootAddress < 0)
+		{
+			exit(10);
+		}
+		gPC = bootAddress;
 		break;
 	}
 }

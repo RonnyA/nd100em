@@ -20,46 +20,43 @@
  * distribution in the file COPYING); if not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef ND_100_LIB_H
-#define ND_100_LIB_H
+#ifndef ND100LIB_H
+#define ND100LIB_H
+
+#include <stdio.h>
+#include <stdint.h>
+#include <stdbool.h>
+#include <pthread.h>
+#include <termios.h>
+#include "nd100.h"
+#include <libconfig.h>
+
+extern struct config_t *pCFG;
 
 extern int trace;
-extern int DISASM;
-extern ushort PANEL_PROCESSOR;
+extern int debug;
+extern char *debugname;
+extern char *debugtype;
+extern FILE *debugfile;
+extern int emulatemon;
 
-char debugname[]="debug.log";
-char debugtype[]="a";
-FILE *debugfile;
-int debug = 0;
-
-#define RUNNING_DIR     "/tmp"
-
-extern _NDRAM_		VolatileMemory;
-extern _RUNMODE_	CurrentCPURunMode;
-extern _CPUTYPE_	CurrentCPUType;
-
-extern struct CpuRegs *gReg;
-extern union NewPT *gPT;
-extern struct MemTraceList *gMemTrace;
-
-
-extern double instr_counter;
-
-
-int emulatemon = 1;
-
-int CONFIG_OK = 0;	/* This should be set to 1 when config file has been loaded OK */
-typedef enum {BP, BPUN, FLOPPY} _BOOT_TYPE_;
-_BOOT_TYPE_	BootType; /* Variable holding the way we should boot up the emulator */
-ushort	STARTADDR;
+extern int debug;
+extern FILE *debugfile;
+extern char *debugname;
+extern char *debugtype;
+extern int debug_open(void);
+extern int CONFIG_OK;	/* This should be set to 1 when config file has been loaded OK */
+typedef enum {BP, BPUN, FLOPPY, SMD} _BOOT_TYPE_;
+extern _BOOT_TYPE_	BootType; /* Variable holding the way we should boot up the emulator */
+extern ushort	STARTADDR;
 /* should we try and disassemble as we run? */
-int DISASM = 0;
+extern int DISASM;
 /* Should we detatch and become a daemon or not? */
-int DAEMON = 0;
+extern int DAEMON;
 /* is console on a socket, or just the local one? */
-int CONSOLE_IS_SOCKET=0;
+extern int CONSOLE_IS_SOCKET;
 
-struct config_t *pCFG;
+extern struct config_t *pCFG;
 
 extern char *FDD_IMAGE_NAME;
 extern bool FDD_IMAGE_RO;
@@ -67,43 +64,25 @@ extern bool FDD_IMAGE_RO;
 extern char *HAWK_IMAGE_NAME;
 extern char *BIGDISK_IMAGE_NAME;
 
-struct termios savetty;
+extern struct termios savetty;
 
-bool CreatePagingTables(); 
-void DestroyPagingTables();
-void Setup_Instructions ();
+bool CreatePagingTables();
 
-
+int DeviceManager_Boot(uint16_t device_id);
 
 extern void MemoryWrite(ushort value, ushort addr, bool UseAPT, unsigned char byte_select);
 extern ushort MemoryRead(ushort addr, bool UseAPT);
 
-extern void Setup_IO_Handlers ();
+/* Status register bit manipulation */
 extern void setbit(ushort regnum, ushort stsbit, char val);
 extern void setbit_STS_MSB(ushort stsbit, char val);
-extern int sectorread (char cyl, char side, char sector, unsigned short *addr);
+
 extern void disasm_addword(ushort addr, ushort myword);
-extern void panel_processor_thread();
 
+/* Shutdown function */
+extern void shutdown(void);
 
-int octalstr_to_integer(char *str);
-int mysleep(int sec, int usec);
-int bpun_load(void);
-int bp_load(void);
-int debug_open(void);
-void unsetcbreak (void);
-void setcbreak (void);
-struct ThreadChain *AddThreadChain(void);
-void RemThreadChain(struct ThreadChain * elem);
-int nd100emconf(void);
-void shutdown(int signum);
-void setsignals(void);
-void daemonize(void);
+/* Thread handling */
 pthread_t add_thread(void *funcpointer, bool is_jointype);
-void start_threads(void);
-void stop_threads(void);
-void setup_cpu(void);
-void program_load(void);
-void cleanup_cpu(void);
 
-#endif // ND_100_LIB_H
+#endif // ND100LIB_H
