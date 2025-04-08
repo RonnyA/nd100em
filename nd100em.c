@@ -38,9 +38,20 @@
 #include "nd100.h"
 #include "nd100em.h"
 
+
+bool retrolog_init(const char *filename);
+
+
 int main(int argc, char *argv[]) {
 	int res;
 
+#ifdef _DOING_LOG_COMPARE_ 	
+	if (!retrolog_init("/mnt/f/file-trace.txt"))
+	{
+		printf("Failed to initialize retrolog for file %s\n", filename);
+		exit(1);
+	}
+#endif
 	srand ( time(NULL) ); /* Generate PRNG Seed */
 
 	used=calloc(1,sizeof(struct rusage)); /* Perf counter stuff */
