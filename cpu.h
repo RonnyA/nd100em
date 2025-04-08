@@ -1,7 +1,10 @@
 #ifndef CPU_H
 #define CPU_H
 
+#include <stdio.h>
+#include <stdint.h>
 #include "nd100.h"
+#include "cpu_mms.h"  // Include this for uint type definition
 
 /*
  * nd100em - ND100 Virtual Machine
@@ -29,27 +32,20 @@
 /* take care with that since intel among others is little endian byte based */
 
 
+#include <stdint.h>
+
 /* GLOBAL VARS */
-
-
-char *regn[] = {"S","D","P","B","L","A","T","X","U0","U1"};
-char *regn_w[] = {"DS","DD","DP","DB","DL","DA","DT","DX"};
-
-char *intregn_r[] = {"PANS","STS","OPR","PGS","PVL","IIC","PID","PIE","CSR","ACTL", "ALD" ,"PES","PGC","PEA","16","17"};
-char *intregn_w[] = {"PANC","STS","LMP","PCR", "4", "IIE","PID","PIE","CCL","LCIL","UCILR","13", "14", "15" ,"16","17"};
-
-char *relmode_str[] ={"",",B ","I ","I ,B ",",X ",",X ,B ","I ,X ","I ,B ,X "};
-char *shtype_str[] ={"","ROT ","ZIN ","LIN "};
-
-char *skiptype_str[] = {"EQL","GEQ","GRE","MGRE","UEQ","LSS","LST","MLST"};
-char *skipregn_dst[] = {"0","DD","DP","DB","DL","DA","DT","DX"};
-char *skipregn_src[] = {"0","SD","SP","SB","SL","SA","ST","SX"};
-
-char *bopstsbit_str[] = {"SSPTM","SSTG","SSK","SSZ","SSQ","SSO","SSC","SSM","","","","","","","",""};
-
-char *bop_str[] = {"BSET ZRO","BSET ONE","BSET BCM","BSET BAC","BSKP ZRO","BSKP ONE",
-		   "BSKP BCM","BSKP BAC","BSTC","BSTA","BLDC","BLDA","BANC","BAND","BORC","BORA"};
-
+extern char *regn[];
+extern char *regn_w[];
+extern char *intregn_r[];
+extern char *intregn_w[];
+extern char *relmode_str[];
+extern char *shtype_str[];
+extern char *skiptype_str[];
+extern char *skipregn_dst[];
+extern char *skipregn_src[];
+extern char *bopstsbit_str[];
+extern char *bop_str[];
 
 extern FILE *tracefile;
 extern int trace;
@@ -60,6 +56,7 @@ extern int debug;
 
 extern int emulatemon;
 
+extern double instr_counter;
 
 /*************************************************/
 /* NEW ORGANIZATION OF MEMORY AND REGISTERS!!    */
@@ -67,15 +64,15 @@ extern int emulatemon;
 
 /* NOTE: Memory part not implemented yet!! */
 
-_NDRAM_		VolatileMemory;
-_NDPT_		PageTable;
-_RUNMODE_	CurrentCPURunMode;
-_CPUTYPE_	CurrentCPUType;
+extern _NDRAM_		VolatileMemory;
+extern _NDPT_		PageTable;
+extern _RUNMODE_	CurrentCPURunMode;
+extern _CPUTYPE_	CurrentCPUType;
 
-struct CpuRegs *gReg;
-union NewPT *gPT;
-struct MemTraceList *gMemTrace;
-struct IdentChain *gIdentChain;
+extern struct CpuRegs *gReg;
+extern union NewPT *gPT;
+extern struct MemTraceList *gMemTrace;
+extern struct IdentChain *gIdentChain;
 
 #define ND_Memsize	(sizeof(VolatileMemory)/sizeof(ushort))
 
@@ -88,20 +85,17 @@ struct IdentChain *gIdentChain;
  * It also makes possible modifications to instruction handling at runtime, for possible
  * implementation of USER instructions etc.
  */
-void (*instr_funcs[65536])(ushort);
+extern void (*instr_funcs[65536])(ushort);
 
 /*************************************************/
 
 /* We have a maximum of 64Kword device register addresses*/
-unsigned short devices[65536];
+extern unsigned short devices[65536];
 
-unsigned short MON_RUN=1;
-
-unsigned short MODE_RUN=1;
-unsigned short MODE_OPCOM=0;
-
-/* This variable tells us if we have the display panel option */
-unsigned short PANEL_PROCESSOR=0;
+extern unsigned short MON_RUN;
+extern unsigned short MODE_RUN;
+extern unsigned short MODE_OPCOM;
+extern unsigned short PANEL_PROCESSOR;
 
 void ndfunc_stz(ushort operand);
 void ndfunc_sta(ushort operand);
@@ -291,6 +285,11 @@ void checkAndSwitch();
 bool executeLevelShift();
 
 bool CheckPriv();
+
+
+unsigned int calcEL(uint8_t displacement);
+unsigned int ReadEL(unsigned el);
+void WriteEL(uint el, ushort value);
 
 extern void TickIO();
 
