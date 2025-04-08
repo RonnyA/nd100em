@@ -309,6 +309,7 @@ uint16_t DeviceManager_ClearRTC_INT()
 {
     uint16_t interruptBits = 0;
 
+    //printf("Clearing RTC INT\n");
     // Optimize for speed by using eralier found reference
     if (rtc_dev)
     {
@@ -349,6 +350,25 @@ uint16_t DeviceManager_Tick(void)
     return interruptBits;
 }
 
+uint16_t DeviceManager_Tick_RTC(void)
+{
+    uint16_t interruptBits = 0;
+    for (int i = 0; i < deviceManager.deviceCount; i++)
+    {
+        Device *dev = deviceManager.devices[i].device;
+        if (dev)
+        {
+            if (dev->isRTC)
+            {
+                interruptBits |= Device_Tick(dev);
+            }
+        }
+    }
+
+    return interruptBits;
+}
+
+
 Device *DeviceManager_GetDeviceByAddress(uint32_t address)
 {
     for (int i = 0; i < deviceManager.deviceCount; i++)
@@ -361,4 +381,40 @@ Device *DeviceManager_GetDeviceByAddress(uint32_t address)
     }
 
     return NULL;
+}
+
+// Loads boot code from disk to memory. Returns the boot address, or -1 if error
+int DeviceManager_Boot(uint16_t device_id)
+{
+
+    Device *dev = DeviceManager_GetDeviceByAddress(device_id & ~(1<<15 | 1<<13)); // mask off bit 15 and 13 when searching for device
+    if (!dev) return -1;
+
+
+    // Boot the device
+    // Autodetect if the boot is a BPUN, MEMORY BOOT or BOOTSTRAP
+    //
+    // If BPUN, then we need to load the BPUN from the device 
+    // If MEMORY BOOT, then we need to load the memory image from the device 
+    // If BOOTSTRAP, then we need to load the bootstrap code from the device 
+
+    // Load the BPUN image IF bit 15 in device_id is 1 - Typical paper-tape or floppy disk (400 or 1560)
+    // Load using "Bootstrap"" IF bit 13 in device is 1 - Used for device 500 (Winchester disk) and 1540 (SMD disk)
+    // Load the memory image IF bit 15 in device_id is 0 - Winchester disk or SMD disk (1540) (first 2KB of disk is loaded to memory at 000000-001777)
+
+    
+    // At the moment.. 
+    // Only implemented for SMD, and only MEMORY boot
+    
+    return Device_Boot(dev,device_id);
+
+
+    
+
+#ifdef LOG_DEVICE_NOT_FOUND
+    // interrupt(14,1<<7); /* IOX error lvl14 */
+     Log(LOG_WARNING, "No device found for BOOT id: %d\n", level);
+#endif    
+
+    return -1;
 }

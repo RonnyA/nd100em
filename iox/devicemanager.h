@@ -77,6 +77,8 @@ void DeviceManager_AddAllDevices(void);
 
 uint16_t DeviceManager_ClearRTC_INT();
 
+uint16_t DeviceManager_Tick_RTC(void);
+
 // Logging function
 void Log(LogLevel level, const char* format, ...);
 
