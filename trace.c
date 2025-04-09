@@ -161,6 +161,8 @@ void trace_instr(ushort instr){
 		} else
 			fprintf(trace2file,"| %08d | %s%s | %02d | %06o | %06o | %s |\n",
 				(int)instr_counter,P,I,CurrLEVEL,gPC,instr,disasm_str);
+				
+		fflush(trace2file);
 	}
 }
 
