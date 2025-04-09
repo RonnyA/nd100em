@@ -81,6 +81,7 @@ extern void disasm_addword(ushort addr, ushort myword);
 
 /* Shutdown function */
 extern void shutdown(void);
+void cleanup_cpu(void);
 
 /* Thread handling */
 pthread_t add_thread(void *funcpointer, bool is_jointype);

@@ -292,5 +292,5 @@ unsigned int ReadEL(unsigned el);
 void WriteEL(uint el, ushort value);
 
 extern void TickIO();
-
+extern int IO_Ident(uint16_t level);
 #endif // CPU_H

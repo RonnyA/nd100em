@@ -2753,14 +2753,10 @@ void DoMCL(ushort instr)
 	if (!CheckPriv())
 		return;
 
-	int s;
 	switch (instr & 0x0F)
 	{
 	case 01: // STS
 		gReg->reg[CurrLEVEL][_STS] &= ~(gA & 0x00FF);
-		//		ushort reg_a = gA;
-		//		SystemSTS &= ~(reg_a & 0xF000);
-		//		gReg->reg[CurrLEVEL][_STS] &= ~(reg_a & 0x00FF);
 		break;
 	case 06: // PID
 		/* This affects interrupt, so do locking and checking. */
@@ -2806,14 +2802,10 @@ void DoMST(ushort instr)
 	if (!CheckPriv())
 		return;
 
-	int s;
 	switch (instr & 0x0F)
 	{
 	case 01: // STS
 		gReg->reg[CurrLEVEL][0] |= (gA & 0x00ff);
-		//		ushort reg_a = gA;
-		//		SystemSTS |= reg_a & 0xF000;
-		//		gReg->reg[CurrLEVEL][0] |= reg_a & 0x00FF;
 		break;
 	case 06: // PID
 		/* This affects interrupt, so do locking and checking. */
@@ -2900,7 +2892,6 @@ void DoTRA(ushort instr)
 	if (!CheckPriv())
 		return;
 
-	int s;
 	ushort temp, level;
 	ushort i;
 	switch (instr & 0x0F)
@@ -3061,7 +3052,6 @@ void DoWAIT(ushort instr)
 	if (!CheckPriv())
 		return;
 
-	int s;
 	ushort temp;
 	if (!STS_IONI)
 	{
