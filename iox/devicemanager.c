@@ -302,39 +302,6 @@ int DeviceManager_Ident(uint16_t level)
     return 0;
 }
 
-static Device *rtc_dev;
-/// @brief Special function to clear interrupt on RTC clock
-/// Returns the new active interrupt bits from alle devices
-uint16_t DeviceManager_ClearRTC_INT()
-{
-    uint16_t interruptBits = 0;
-
-    //printf("Clearing RTC INT\n");
-    // Optimize for speed by using eralier found reference
-    if (rtc_dev)
-    {
-        rtc_dev->interruptBits &= ~(1<<13);
-    }
-
-    // Find rtc device
-    for (int i = 0; i < deviceManager.deviceCount; i++)
-    {
-        Device *dev = deviceManager.devices[i].device;
-        if (dev)
-        {
-            rtc_dev = dev;
-            if (dev->isRTC)
-            {
-                dev->interruptBits &= ~(1<<13);
-            }
-        }
-
-        interruptBits |= dev->interruptBits;
-    }
-
-    return interruptBits;
-}
-
 uint16_t DeviceManager_Tick(void)
 {
     uint16_t interruptBits = 0;
@@ -410,9 +377,9 @@ int DeviceManager_Boot(uint16_t device_id)
 
 
     
-
+    
 #ifdef LOG_DEVICE_NOT_FOUND
-    // interrupt(14,1<<7); /* IOX error lvl14 */
+    // interrupt(14,1<<7); /* IOX error lvl14 */s
      Log(LOG_WARNING, "No device found for BOOT id: %d\n", level);
 #endif    
 
