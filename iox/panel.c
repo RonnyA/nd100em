@@ -7,7 +7,7 @@
 void setup_pap()
 {
 
-	gPANS = 0x8000;			/* Tell system we are here */
+	gPANS = 0x8000;			/* Tell system we are here (Bit 15 active will activate MOPC logic in MS20 in microcode every 20 ms)*/
 	gPANS = gPANS | 0x4000; /* Set FULL which is active low, so not full */
 
 	gPAP = calloc(1, sizeof(struct display_panel));
