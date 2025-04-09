@@ -23,10 +23,9 @@
  * distribution in the file COPYING); if not, see <http://www.gnu.org/licenses/>.
  */
 
-// #define DEBUG_TRAP
-// #define DEBUG_PK_SWITCH
-
-
+//#define DEBUG_TRAP
+//#define DEBUG_PK_SWITCH
+//  #define DEBUG_IONOFF
 
 #include <termios.h>
 #include <stdio.h>
@@ -47,18 +46,14 @@
 #include "cpu_mms.h"
 #include <setjmp.h>
 
+#include "retrolog.h"
+
 #define BUFSTRSIZE 24
 
-struct termios savetty;
+extern struct termios savetty;
 
 /* Performance stuff */
 
-double instr_counter;
-
-float usertime, systemtime, totaltime;
-struct rusage *used;
-
-/* temporary string for misc data, basically a junk variable */
 /* used by different trace stuff before sending off to tracing */
 char trace_temp_str[256];
 
@@ -684,10 +679,23 @@ void setPES(ushort pes)
 	gPES_Lock = true;
 }
 
+// Set and lock PGS
+void setPGS(ushort pgs)
+{
+	if (gPGS_Lock)
+		return;
+	gPGS = pgs;
+	if (pgs != 0)
+	{
+		gPGS_Lock = true;
+	}
+}
+
 /* STZ
  */
 void ndfunc_stz(ushort operand)
 {
+	gEA = New_GetEffectiveAddr(operand, &gUseAPT);
 	MemoryWrite(0, gEA, gUseAPT, 2);
 }
 
@@ -695,6 +703,8 @@ void ndfunc_stz(ushort operand)
  */
 void ndfunc_sta(ushort operand)
 {
+	gEA = New_GetEffectiveAddr(operand, &gUseAPT);
+
 	trace_step(1, "(%06o)<=A", (int)gEA);
 	MemoryWrite(gA, gEA, gUseAPT, 2);
 }
@@ -703,6 +713,7 @@ void ndfunc_sta(ushort operand)
  */
 void ndfunc_stt(ushort operand)
 {
+	gEA = New_GetEffectiveAddr(operand, &gUseAPT);
 	MemoryWrite(gT, gEA, gUseAPT, 2);
 }
 
@@ -710,6 +721,7 @@ void ndfunc_stt(ushort operand)
  */
 void ndfunc_stx(ushort operand)
 {
+	gEA = New_GetEffectiveAddr(operand, &gUseAPT);
 	MemoryWrite(gX, gEA, gUseAPT, 2);
 }
 
@@ -717,7 +729,7 @@ void ndfunc_stx(ushort operand)
  */
 void ndfunc_std(ushort operand)
 {
-
+	gEA = New_GetEffectiveAddr(operand, &gUseAPT);
 	MemoryWrite(gA, gEA + 0, gUseAPT, 2);
 	MemoryWrite(gD, gEA + 1, gUseAPT, 2);
 }
@@ -726,53 +738,10 @@ void ndfunc_std(ushort operand)
  */
 void ndfunc_stf(ushort operand)
 {
+	gEA = New_GetEffectiveAddr(operand, &gUseAPT);
 	MemoryWrite(gT, gEA + 0, gUseAPT, 2);
 	MemoryWrite(gA, gEA + 1, gUseAPT, 2);
 	MemoryWrite(gD, gEA + 2, gUseAPT, 2);
-}
-
-/* STZTX
- */
-void ndfunc_stztx(ushort operand)
-{
-	if (!CheckPriv())
-		return;
-
-	ushort temp;
-	unsigned int fulladdress;
-	temp = (operand & 0x0038) >> 3;
-	fulladdress = (((unsigned int)gT) << 16) | (ushort)(gX + temp);
-	PhysMemWrite(0, fulladdress);
-}
-
-/* STATX
- */
-void ndfunc_statx(ushort operand)
-{
-	if (!CheckPriv())
-		return;
-
-	ushort temp;
-	unsigned int fulladdress;
-	temp = (operand & 0x0038) >> 3;
-	fulladdress = (((unsigned int)gT) << 16) | (ushort)(gX + temp);
-	PhysMemWrite(gA, fulladdress);
-}
-
-/* STDTX
- */
-void ndfunc_stdtx(ushort operand)
-{
-	if (!CheckPriv())
-		return;
-
-	ushort temp;
-	unsigned int fulladdress;
-	temp = (operand & 0x0038) >> 3;
-	fulladdress = (((unsigned int)gT) << 16) | (ushort)(gX + temp);
-	PhysMemWrite(gA, fulladdress);
-	fulladdress++;
-	PhysMemWrite(gD, fulladdress);
 }
 
 /* LDA
@@ -781,6 +750,8 @@ void ndfunc_lda(ushort operand)
 {
 	if (trace)
 		trace_pre(1, "A", (int)gA);
+
+	gEA = New_GetEffectiveAddr(operand, &gUseAPT);
 
 	gA = MemoryRead(gEA, gUseAPT);
 
@@ -798,6 +769,8 @@ void ndfunc_ldt(ushort operand)
 	if (trace)
 		trace_pre(1, "T", (int)gT);
 
+	gEA = New_GetEffectiveAddr(operand, &gUseAPT);
+
 	gT = MemoryRead(gEA, gUseAPT);
 
 	if (DISASM)
@@ -813,6 +786,7 @@ void ndfunc_ldx(ushort operand)
 	if (trace)
 		trace_pre(1, "X", (int)gX);
 
+	gEA = New_GetEffectiveAddr(operand, &gUseAPT);
 	gX = MemoryRead(gEA, gUseAPT);
 
 	if (DISASM)
@@ -827,6 +801,8 @@ void ndfunc_ldd(ushort operand)
 {
 	if (trace)
 		trace_pre(2, "A", (int)gA, "D", (int)gD);
+
+	gEA = New_GetEffectiveAddr(operand, &gUseAPT);
 
 	gA = MemoryRead(gEA + 0, gUseAPT);
 	gD = MemoryRead(gEA + 1, gUseAPT);
@@ -846,6 +822,8 @@ void ndfunc_ldf(ushort operand)
 {
 	if (trace)
 		trace_pre(3, "T", (int)gT, "A", (int)gA, "D", (int)gD);
+
+	gEA = New_GetEffectiveAddr(operand, &gUseAPT);
 
 	gT = MemoryRead(gEA + 0, gUseAPT);
 	gA = MemoryRead(gEA + 1, gUseAPT);
@@ -881,10 +859,12 @@ bool CheckPriv()
 // Calculate effective address for LDnTX
 unsigned int calcEL(uint8_t displacement)
 {
+
 	unsigned int EL = (gX + displacement) & 0xFFFF;
 	EL = (gT & 0xFF) << 16 | EL;
 	EL = EL & 0xFFFFFF; // Cap at 24 bits
 
+	// printf("calcEL: EL=%6X, gX=%4X, gT=%4X, displacement=%d\n", EL,gX, gT, displacement	);
 	return EL;
 }
 
@@ -898,6 +878,46 @@ unsigned int ReadEL(unsigned el)
 void WriteEL(uint el, ushort value)
 {
 	WritePhysicalMemory(el, value, true);
+}
+
+/* STZTX
+ */
+void ndfunc_stztx(ushort operand)
+{
+	if (!CheckPriv())
+		return;
+
+	uint8_t displacement = (operand >> 3) & 0x07;
+	uint EL = calcEL(displacement);
+	WriteEL(EL, 0);
+
+}
+
+/* STATX
+ */
+void ndfunc_statx(ushort operand)
+{
+	if (!CheckPriv())
+		return;
+
+	uint8_t displacement = (operand >> 3) & 0x07;
+	uint EL = calcEL(displacement);
+	WriteEL(EL, gA);
+
+}
+
+/* STDTX
+ */
+void ndfunc_stdtx(ushort operand)
+{
+	if (!CheckPriv())
+		return;
+
+	uint8_t displacement = (operand >> 3) & 0x07;
+	uint EL = calcEL(displacement);
+	WriteEL(EL, gA);
+	WriteEL(EL + 1, gD);
+
 }
 
 /// <summary>
@@ -920,7 +940,7 @@ void ndfunc_ldatx(ushort operand)
 	uint8_t displacement = (operand >> 3) & 0x07;
 
 	unsigned int EL = calcEL(displacement);
-	gA = PhysMemRead(EL);
+	gA = ReadEL(EL);
 }
 
 /// <summary>
@@ -942,7 +962,7 @@ void ndfunc_ldxtx(ushort operand)
 	uint8_t displacement = (operand >> 3) & 0x07;
 	unsigned int EL = calcEL(displacement);
 
-	gX = PhysMemRead(EL);
+	gX = ReadEL(EL);
 }
 
 /// <summary>
@@ -965,9 +985,9 @@ void ndfunc_lddtx(ushort operand)
 	uint8_t displacement = (operand >> 3) & 0x07;
 	unsigned int EL = calcEL(displacement);
 
-	gA = PhysMemRead(EL);
+	gA = ReadEL(EL);
 	EL++;
-	gD = PhysMemRead(EL);
+	gD = ReadEL(EL);
 }
 
 /// <summary>
@@ -993,7 +1013,7 @@ void ndfunc_ldbtx(ushort operand)
 	uint8_t displacement = (operand >> 3) & 0x07;
 	unsigned int EL = calcEL(displacement);
 
-	temp = PhysMemRead(EL);
+	temp = ReadEL(EL);
 	result = (temp + temp) & 0xFFFF;
 	gB = result | 0xFE00; // 0177000
 }
@@ -1010,6 +1030,8 @@ void ndfunc_ldbtx(ushort operand)
 /// </summary>
 void ndfunc_min(ushort operand)
 {
+	gEA = New_GetEffectiveAddr(operand, &gUseAPT);
+
 	ushort temp = MemoryRead(gEA, gUseAPT);
 	temp++;
 	MemoryWrite(temp, gEA, gUseAPT, 2);
@@ -1022,6 +1044,8 @@ void ndfunc_min(ushort operand)
  */
 void ndfunc_add(ushort operand)
 {
+	gEA = New_GetEffectiveAddr(operand, &gUseAPT);
+
 	ushort eff_word = MemoryRead(gEA, gUseAPT);
 	gA = do_add(gA, eff_word, 0);
 }
@@ -1030,6 +1054,7 @@ void ndfunc_add(ushort operand)
  */
 void ndfunc_sub(ushort operand)
 {
+	gEA = New_GetEffectiveAddr(operand, &gUseAPT);
 	ushort eff_word = MemoryRead(gEA, gUseAPT);
 	gA = do_add(gA, ~eff_word, 1);
 }
@@ -1038,6 +1063,7 @@ void ndfunc_sub(ushort operand)
  */
 void ndfunc_and(ushort operand)
 {
+	gEA = New_GetEffectiveAddr(operand, &gUseAPT);
 	gA = gA & MemoryRead(gEA, gUseAPT);
 }
 
@@ -1045,6 +1071,7 @@ void ndfunc_and(ushort operand)
  */
 void ndfunc_ora(ushort operand)
 {
+	gEA = New_GetEffectiveAddr(operand, &gUseAPT);
 	gA = gA | MemoryRead(gEA, gUseAPT);
 }
 
@@ -1052,6 +1079,8 @@ void ndfunc_ora(ushort operand)
  */
 void ndfunc_fad(ushort operand)
 {
+	gEA = New_GetEffectiveAddr(operand, &gUseAPT);
+
 	ushort a[3], b[3], r[3];
 	int res;
 
@@ -1081,6 +1110,8 @@ void ndfunc_fsb(ushort operand)
 {
 	ushort a[3], b[3], r[3];
 
+	gEA = New_GetEffectiveAddr(operand, &gUseAPT);
+
 	b[0] = gT;
 	a[0] = gT;
 	a[1] = gA;
@@ -1106,6 +1137,8 @@ void ndfunc_fmu(ushort operand)
 {
 	ushort a[3], b[3], r[3];
 
+	gEA = New_GetEffectiveAddr(operand, &gUseAPT);
+
 	a[0] = gT;
 	a[1] = gA;
 	a[2] = gD;
@@ -1129,6 +1162,8 @@ void ndfunc_fmu(ushort operand)
 void ndfunc_fdv(ushort operand)
 {
 	ushort a[3], b[3], r[3];
+
+	gEA = New_GetEffectiveAddr(operand, &gUseAPT);
 
 	a[0] = gT;
 	a[1] = gA;
@@ -1157,6 +1192,9 @@ void ndfunc_fdv(ushort operand)
 void ndfunc_jmp(ushort operand)
 {
 	ushort old_gPC = gPC - 1;
+
+	gEA = New_GetEffectiveAddr(operand, &gUseAPT);
+
 
 	gPC = gEA;
 	if (DISASM)
@@ -1208,6 +1246,55 @@ void ndfunc_versn(ushort operand)
 	gT = microcode_version;
 }
 
+/// <summary>
+/// Check if the IO address points to special "in memory" registers
+///
+/// Addresses from 100000 . - 100777, are used to specify system control registers which have to be accessed via the ND-100 bus.
+/// An example is the Error Correction Control Register (ECCR), physically located on the memory modules.
+/// </summary>
+/// <returns>true if the IO address was handled, false otherwise</returns>
+bool UpdateMemoryIO()
+{
+	if ((gT < 0x8000) || (gT > 0x81FF))
+		return false;
+
+	switch (gT)
+	{
+	case 0x804D: // 100115
+		// By disabling this register ECCR test will say that there is no ECCR memory. Which is a benefit, then it can't fail :)
+		// Test #5 in "MEMORY - Version: D00 - 1986-10-30" fails, because it expects and interrupt - but at the moment I dont know why..
+		if (gECCR != gA)
+		{
+			gECCR = gA;
+
+			if (debug)
+			{
+				char opts[256] = "";
+
+				if ((gECCR & 1 << 0) != 0)
+					strcat(opts, "[0TS | Simulate memory error in bit 0] ");
+				if ((gECCR & 1 << 1) != 0)
+					strcat(opts, "[15T | Simulate memory error in bit 15] ");
+				if ((gECCR & 1 << 2) != 0)
+					strcat(opts, "[ANY | Enable parity interrup on all errors] ");
+				if ((gECCR & 1 << 3) != 0)
+					strcat(opts, "[DIS | Disable ECC System and parity interrupt] ");
+				if ((gECCR & 1 << 4) != 0)
+					strcat(opts, "[6TS | Simualate memory error in bit 6] ");
+
+				fprintf(debugfile, "ECCR = %06o %s\n", gECCR, opts);
+				//printf("ECCR = %06o %s\n", gECCR, opts);
+			}
+		}
+		return true;
+	default:
+		if (debug)
+			fprintf(debugfile, "Unexpected system control register IOXT via NDBUS: (%06o)\n", gT);
+		break;
+	}
+	return false;
+}
+
 /* IOT
  * This is really an ND1 instruction
  * NOTE:: Privileged instructions
@@ -1232,7 +1319,9 @@ void ndfunc_iox(ushort operand)
 		return;
 	if (trace)
 		trace_pre(1, "A", (int)gA);
-	io_op(operand & 0x07ff);
+
+	if (!UpdateMemoryIO())
+		io_op(operand & 0x07ff);
 
 	if (trace)
 	{
@@ -1255,7 +1344,9 @@ void ndfunc_ioxt(ushort operand)
 
 	if (trace)
 		trace_pre(2, "A", (int)gA, "T", (int)gT);
-	io_op(gT);
+
+	if (!UpdateMemoryIO())
+		io_op(gT);
 
 	if (trace)
 	{
@@ -1561,7 +1652,6 @@ void ndfunc_opcom(ushort operand)
 	MODE_OPCOM = 1;
 }
 
-
 /// <summary>
 /// IRW - Inter-Register Write
 ///
@@ -1729,7 +1819,6 @@ void ndfunc_aaa(ushort operand)
 {
 	short temp;
 
-	//temp = (ushort)(sshort)(char)(operand & 0x00ff);
 	temp = signExtend(operand & 0xFF);
 	gA = do_add(gA, temp, 0);
 }
@@ -1740,7 +1829,6 @@ void ndfunc_aab(ushort operand)
 {
 	ushort temp;
 
-	//temp = (ushort)(sshort)(char)(operand & 0x00ff);
 	temp = signExtend(operand & 0xFF);
 	gB = do_add(gB, temp, 0);
 }
@@ -1751,7 +1839,6 @@ void ndfunc_aat(ushort operand)
 {
 	ushort temp;
 
-	//temp = (ushort)(sshort)(char)(operand & 0x00ff);
 	temp = signExtend(operand & 0xFF);
 	gT = do_add(gT, temp, 0);
 }
@@ -1762,7 +1849,6 @@ void ndfunc_aax(ushort operand)
 {
 	ushort temp;
 
-	//temp = (ushort)(sshort)(char)(operand & 0x00ff);
 	temp = signExtend(operand & 0xFF);
 
 	gX = do_add(gX, temp, 0);
@@ -1772,16 +1858,14 @@ void ndfunc_aax(ushort operand)
  */
 void ndfunc_mon(ushort operand)
 {
-	char offset;
-	offset = (char)(operand & 0x1ff);
+	uint16_t monitor_number = (operand & 0x1ff);
 
 	if (emulatemon)
-		mon(offset);
+		mon(monitor_number);
 	else
 	{
 		if (CurrLEVEL < 14)
 		{
-			ushort monitor_number = offset;
 			if ((monitor_number & (1 << 8)) != 0)
 			{
 				monitor_number |= 0xFE00; // Sign extend
@@ -1789,6 +1873,7 @@ void ndfunc_mon(ushort operand)
 
 			gReg->reg[14][_T] = monitor_number;
 			interrupt(14, 1 << 1); /* Monitor Call */
+			gCHKIT = true;	
 		}
 	}
 }
@@ -1798,7 +1883,6 @@ void ndfunc_mon(ushort operand)
 void ndfunc_saa(ushort operand)
 {
 	setreg(_A, signExtend(operand & 0xFF));
-	// setreg(_A, (int)(char)(operand & 0x00ff));
 }
 
 /* SAB
@@ -1806,7 +1890,6 @@ void ndfunc_saa(ushort operand)
 void ndfunc_sab(ushort operand)
 {
 	setreg(_B, signExtend(operand & 0xFF));
-	// setreg(_B, (int)(char)(operand & 0x00ff));
 }
 
 /* SAT
@@ -1814,7 +1897,6 @@ void ndfunc_sab(ushort operand)
 void ndfunc_sat(ushort operand)
 {
 	setreg(_T, signExtend(operand & 0xFF));
-	// setreg(_T, (int)(char)(operand & 0x00ff));
 }
 
 /* SAX
@@ -1822,7 +1904,6 @@ void ndfunc_sat(ushort operand)
 void ndfunc_sax(ushort operand)
 {
 	setreg(_X, signExtend(operand & 0xFF));
-	// setreg(_X, (int)(char)(operand & 0x00ff));
 }
 
 /* SHT, SHD, SHA, SAD
@@ -1931,8 +2012,7 @@ void CJP(bool jmp_flag, ushort operand)
 		ushort old_gPC = gPC - 1;
 
 		ushort temp = signExtend(operand & 0xff);
-		// temp = (ushort)(sshort)(char)(operand & 0x00ff);
-		gPC = do_add(gPC - 1, temp, 0); 
+		gPC = do_add(gPC - 1, temp, 0);
 
 		if (DISASM)
 			disasm_userel(old_gPC, gPC);
@@ -2051,6 +2131,8 @@ void ndfunc_jpl(ushort operand)
 {
 	ushort old_gPC = gPC - 1;
 
+	gEA = New_GetEffectiveAddr(operand, &gUseAPT);
+
 	gL = gPC;
 	gPC = gEA;
 	if (DISASM)
@@ -2091,7 +2173,7 @@ void ndfunc_bfill_new(ushort operand)
 	while ((gT & 0xfff) != 0)
 	{
 		// Bit 15:  0=>MSB, 1=> LSB
-		wm = (gT & (1 << 15)) ? WRITEMODE_LSB : WRITEMODE_MSB;		
+		wm = (gT & (1 << 15)) ? WRITEMODE_LSB : WRITEMODE_MSB;
 		WriteVirtualMemory(gX, gA & 0xFF, useAPT, wm);
 
 		gT--;
@@ -2133,9 +2215,8 @@ void ndfunc_bfill(ushort operand)
 	if (trace)
 		trace_step(1, "-E:(%06o)", (int)gX); /* -E:(%06o)<=%s */
 	if (trace)
-		trace_post(2, "X", (int)gX, "T", (int)gT);	
+		trace_post(2, "X", (int)gX, "T", (int)gT);
 }
-
 
 /* INIT
  * INIT instruction:
@@ -2222,7 +2303,7 @@ void ndfunc_init(ushort operand)
  * ADDR+1: Stack demand
  * ADDR+2: Error return
  * ADDR+3: Normal return
- * 
+ *
  */
 void ndfunc_entr(ushort operand)
 {
@@ -2280,7 +2361,7 @@ void ndfunc_eleav(ushort operand)
 void ndfunc_lbyt(ushort operand)
 {
 
-	ushort offset = gX >>1;
+	ushort offset = gX >> 1;
 	ushort memval = MemoryRead(gT + offset, true);
 
 	if ((gX & 1) != 0)
@@ -2294,7 +2375,6 @@ void ndfunc_lbyt(ushort operand)
 	}
 	if (DISASM)
 		disasm_set_isdata(gT + offset);
-
 }
 
 /// <summary>
@@ -2313,7 +2393,7 @@ void ndfunc_sbyt(ushort operand)
 	ushort offset = gX >> 1; /* same as divide by 2 */
 
 	if ((gX & 1) != 0)
-	
+
 	{
 		// Odd byte, write LSB value
 		WriteVirtualMemory((uint)(gT + offset), gA, true, WRITEMODE_LSB);
@@ -2347,21 +2427,153 @@ void ndfunc_mix3(ushort operand)
 	gX = (ushort)((gA - 1) * 3);
 }
 
+bool compare_started = false;
+
+MatchCriteria criteria;
+LogEntry entry; // new clean entry structure
+int line_number = 0;
+
 void do_op(ushort operand, bool isEXR)
 {
-	gEA = New_GetEffectiveAddr(operand, &gUseAPT);
+
+	ushort old_gPC = gPC;
+
+#ifdef COMPARE_INSTRUCTIONS_WITH_LOG // Compare every instruction with output from RetroCore log file
+	//if ((compare_started)  && (gPIL != 13))
+	if (compare_started)  
+	{
+
+		ushort savePIL = gPIL;
+		// Clear entry with memset
+		memset(&entry, 0, sizeof(LogEntry));
+
+		
+		// Parse next entry from log file (hopefully this matches the current instruction)
+		line_number = retrolog_parse_next(&entry, line_number);
+		if (line_number < 0)
+		{
+			printf("No more RC log entries\n");
+			compare_started = false;
+		}
+		if (savePIL != gPIL)
+		{
+			// Switch hasd been forced
+			operand = gReg->myreg_IR;			
+		}
+
+
+		// Clear criteria with memset
+		memset(&criteria, 0, sizeof(MatchCriteria));
+
+		// Fill criteria with current state
+		retrolog_fill_match_criteria(&criteria);
+	
+
+		if (isEXR)
+		{
+			// hack to make it work for EXR ST
+			criteria.target_regs.P--;
+			ushort exreg = (criteria.target_opcode >> 3) & 0x0007;
+			switch (exreg)
+			{
+			case _A:
+				criteria.target_opcode = criteria.target_regs.A;
+				break;
+			case _B:
+				criteria.target_opcode = criteria.target_regs.B;
+				break;
+			case _X:
+				criteria.target_opcode = criteria.target_regs.X;
+				break;
+			case _T:
+				criteria.target_opcode = criteria.target_regs.T;
+				break;
+			case _D:
+				criteria.target_opcode = criteria.target_regs.D;
+				break;
+			case _L:
+				criteria.target_opcode = criteria.target_regs.L;
+				break;
+			}
+		}
+		// printf("%10d PIL[%2d]R[%d] ADDR[%6o] %06o %20s A[%06o] X[%06o]\n",line_number, entry.pil, entry.ring, entry.reg_p, entry.opcode, entry.disassembly, entry.reg_a, entry.reg_x);
+
+		if (!retrolog_compare_log_and_entry(&criteria, &entry))
+		{
+			printf("\n\n--------------------------------\n");
+			printf("line_number: %d: %s\n", line_number, entry.disassembly);
+			printf("LOG says : PIL[%d| P:[%06o], OPCODE[%06o]\n", entry.level, entry.reg_p, entry.opcode);
+			printf("CPU is     PIL[%d| P:[%06o], OPCODE[%06o]\n", criteria.target_level, criteria.target_regs.P, criteria.target_opcode);
+			printf("--------------------------------\n");
+			// Print the log entry
+			print_log_entry_diff(&criteria, &entry);
+			printf("\n\n--------------------------------\n");
+			if ((operand != 0140500) && (operand != 0140133) && (!isEXR)) // invalide opcode + not EXR
+			{
+				// Clear criteria with memset
+				memset(&criteria, 0, sizeof(MatchCriteria));
+
+				// Fill criteria with current state
+				retrolog_fill_match_criteria(&criteria);	
+
+				line_number = retrolog_seek_next_match(&criteria, &entry, line_number);
+				if (line_number > 0)
+				{			
+					printf("Found NEW match on line: %d\n", line_number);
+				}
+				else
+				{
+					printf("No more matches found\n");
+					compare_started = false;
+					exit(1);
+				}	
+								
+			}
+		}
+	}
+
+
+	if ((operand ==-1)  && (!compare_started)) // 106452 -1  && opcode  // MON 70 - COMND
+	{
+		printf("START COMPARE: P=%06o, gPIL=%02o\r\n", gPC, gPIL);
+
+		// Clear criteria with memset
+		memset(&criteria, 0, sizeof(MatchCriteria));
+
+		
+		// Fill criteria with current state
+		retrolog_fill_match_criteria(&criteria);		
+
+		line_number = retrolog_seek_next_match(&criteria, &entry, 0);
+		if (line_number > 0)
+		{
+
+			printf("Found match on line: %d\n", line_number);
+
+			compare_started = true;
+			print_log_entry(&entry);
+		}
+	}
+
+#endif COMPARE_INSTRUCTIONS_WITH_LOG // Compare every instruction with output from RetroCore log file
+
+
+	/***************** EXECUTE INSTRUCTION *****************/
 
 	if (!isEXR)
-		gPC++;					   // Move P before starting instruction. (but not if executed from register)
+		gPC++; // Move P before starting instruction. (but not if executed from register)
+
 	instr_funcs[operand](operand); /* call using a function pointer from the array
 				   this way we are as flexible as possible as we
 				   implement io calls. */
+
+	/***************** EXECUTE INSTRUCTION *****************/
 
 }
 
 void illegal_instr(ushort operand)
 {
-	//printf("Illegal instruction %6o  at %6o\r\n", operand, gPC);
+	// printf("Illegal instruction %6o  at %6o\r\n", operand, gPC);
 
 	if (trace)
 		trace_step(1, "CODE=%06o", (int)operand);
@@ -2391,7 +2603,7 @@ void prefetch()
 void regop(ushort operand)
 { /* SWAP RAND REXO RORA RADD RCLR EXIT RDCR RING RSUB */
 	int RAD, CLD, CM1, tmp;
-	ushort sr, dr, source;
+	ushort sr, dr, source, destination;
 	ushort old_gPC = gPC;
 
 	RAD = ((operand & 0x0400) >> 10);
@@ -2401,7 +2613,8 @@ void regop(ushort operand)
 	sr = ((operand & 0x0038) >> 3);
 	dr = (operand & 0x0007);
 
-	source = (sr == 0) ? 0 : gReg->reg[CurrLEVEL][sr] & 0xFFFF; /* handles special case when sr=STS reg */
+	source = (sr == 0) ? 0 : gReg->reg[CurrLEVEL][sr] & 0xFFFF;	 /* handles special case when sr=STS reg */
+	destination = (CLD) ? 0 : gReg->reg[CurrLEVEL][dr] & 0xFFFF; // Get destination value
 
 	switch (RAD)
 	{
@@ -2426,7 +2639,7 @@ void regop(ushort operand)
 				gReg->reg[CurrLEVEL][dr] = (CLD) ? ((CM1) ? ~source : source) : ((CM1) ? gReg->reg[CurrLEVEL][dr] | ~source : gReg->reg[CurrLEVEL][dr] | source);
 				break;
 			}
-		}	
+		}
 		break;
 	case 1: /* Arithmetic operation - RADD RCLR EXIT RDCR RINC RSUB */
 		if (dr != 0)
@@ -2435,22 +2648,22 @@ void regop(ushort operand)
 			switch ((operand & 0x0380) >> 7)
 			{
 			case 0: /* RADD */
-				tmp = (CLD) ? source : do_add(gReg->reg[CurrLEVEL][dr], source, 0);
+				tmp = do_add(destination, source, 0);
 				break;
 			case 1: /* RADD CM1 */
-				tmp = (CLD) ? ~source : do_add(gReg->reg[CurrLEVEL][dr], ~source, 0);
+				tmp = do_add(destination, ~source, 0);
 				break;
 			case 2: /* RADD AD1 */
-				tmp = (CLD) ? do_add(0, source, 1) : do_add(gReg->reg[CurrLEVEL][dr], source, 1);
+				tmp = do_add(destination, source, 1);
 				break;
 			case 3: /* RADD AD1 CM1 */
-				tmp = (CLD) ? do_add(0, ~source, 1) : do_add(gReg->reg[CurrLEVEL][dr], ~source, 1);
+				tmp = do_add(destination, ~source, 1);
 				break;
 			case 4: /* RADD ADC */
-				tmp = (CLD) ? do_add(0, source, getbit(_STS, _C)) : do_add(gReg->reg[CurrLEVEL][dr], source, getbit(_STS, _C));
+				tmp = do_add(destination, source, getbit(_STS, _C));
 				break;
 			case 5: /* RADD ADC CM1 */
-				tmp = (CLD) ? do_add(0, ~source, getbit(_STS, _C)) : do_add(gReg->reg[CurrLEVEL][dr], ~source, getbit(_STS, _C));
+				tmp = do_add(destination, ~source, getbit(_STS, _C));
 				break;
 			case 6: /* NOOP */
 				break;
@@ -2481,10 +2694,13 @@ ushort New_GetEffectiveAddr(ushort instr, bool *use_apt)
 {
 	int disp = signExtend(instr & 0xFF);
 	ushort eff_addr;
+
+	ushort P = (gPC - 1) & 0xFFFF;
+
 	switch ((instr >> 8) & 0x07)
 	{
 	case 0: /* (P) + disp */
-		eff_addr = gPC + disp;
+		eff_addr = P + disp;
 		*use_apt = false;
 		break;
 	case 1: /* (B) + disp */
@@ -2492,7 +2708,7 @@ ushort New_GetEffectiveAddr(ushort instr, bool *use_apt)
 		*use_apt = true;
 		break;
 	case 2: /* ((P) + disp) */
-		eff_addr = gPC + disp;
+		eff_addr = P + disp;
 		eff_addr = ReadIndirectVirtualMemory(eff_addr, false);
 		*use_apt = true;
 		break;
@@ -2510,12 +2726,12 @@ ushort New_GetEffectiveAddr(ushort instr, bool *use_apt)
 		*use_apt = true;
 		break;
 	case 6: /* ((P) + disp) + (X) */
-		eff_addr = gPC + disp;
+		eff_addr = P + disp;
 		eff_addr = gX + ReadIndirectVirtualMemory(eff_addr, false);
 		*use_apt = true;
 		break;
 	case 7: /* ((B) + disp) + (X) */
-		eff_addr = gB + disp;
+		eff_addr = (gB + disp) & 0xFFFF;
 		eff_addr = gX + ReadIndirectVirtualMemory(eff_addr, true);
 		*use_apt = true;
 		break;
@@ -2603,9 +2819,11 @@ void DoMST(ushort instr)
 		/* This affects interrupt, so do locking and checking. */
 		if (trace)
 			trace_pre(2, "PID", gPID, "A", gA);
-		gPID |= gA;
 
+		gPID |= gA;
 		gCHKIT = true; // we need to check PK after this
+		
+		
 		if (trace)
 			trace_step(1, "PID {AND}{NOT} A", 0);
 		if (trace)
@@ -2632,7 +2850,7 @@ void DoMST(ushort instr)
 // Calculate internal Interrupt
 /// <summary>
 /// IIC - Internal Interrupt Code
-/// 
+///
 /// This register will hold a code between 0 - 12 (oct), which will identify the internal source for the interrupt.
 /// Priority encoded IID | IIE
 /// </summary>
@@ -2644,9 +2862,9 @@ void DoMST(ushort instr)
 ///  MC  |   1      |    1     | Monitor Call
 ///  PV  |   2      |    2     | Protect Violation. Page number is found in the Paging Status Register.
 ///  PF  |   3      |    3     | Page fault. Page not in memory.
-///  II  |   4      |    4     | lllegal instruction. Not implemented instruction.	
+///  II  |   4      |    4     | lllegal instruction. Not implemented instruction.
 ///  Z   |   5      |    5     | Error indicator. The Z indicator is set.
-///  PI  |   6      |    6     | Privileged instruction. 
+///  PI  |   6      |    6     | Privileged instruction.
 ///  IOX |   7      |    7     | IOX error. No answer from external device.
 ///  PTY |   8      |    10    | Memory parity error
 ///  MOR |   9      |    11    | Memory out of range Addressing non-existent memory.
@@ -2658,7 +2876,7 @@ ushort calcIIC()
 	if (priorityCode == 0)
 		return 0;
 
-	//printf("IID=0x%x, IIE=0x%x, priorityCode=0x%x\r\n", gIID, gIIE, priorityCode);
+	// printf("IID=0x%x, IIE=0x%x, priorityCode=0x%x\r\n", gIID, gIIE, priorityCode);
 
 	for (int i = 10; i >= 0; i--)
 	{
@@ -2726,10 +2944,9 @@ void DoTRA(ushort instr)
 	case 05: /* TRA IIC */
 		/* Manuals says(2.2.4.3) that this should be a number equal to the highest bit set in (IID & IIE) - Roger */
 		/* Only bit 1-10 is used, so we only return a value between 1 and 10  or else  zero */
-	
+
 		gIIC = calcIIC();
 
-		
 		gA = gIIC;
 
 		gIIC = 0;
@@ -2788,7 +3005,7 @@ void DoTRA(ushort instr)
 		gPES_Lock = false;
 		break;
 	default: /* These registers dont exist, so just return 0 for now FIXME: Check correct behaviour.*/
-		 // gA = 0;
+			 // gA = 0;
 		//  do nothing is the correct
 		break;
 	}
@@ -2847,25 +3064,26 @@ void DoWAIT(ushort instr)
 	int s;
 	ushort temp;
 	if (!STS_IONI)
-	{ /* Interrupt is off, HALT cpu */
-		printf("WAIT when IONI is off PIL[%d] PC[%6o] PID[0x%4X] PIE[0x%4X] IONI[%d] PONI[%d] STS_HI[%4X] STS_LO[%4X]\r\n", gPIL, gPC, gPID, gPIE, STS_IONI, STS_PONI, gReg->reg_STS, gReg->reg[gPIL][_STS]);
+	{
+		// If the interrupt system is OFF
+		// The ND-110 stops with the program counter (P register) pointing at the instruction after the WAIT and the front panel RUN indicator is turned off.
+		// To restart the system, type ! on the console terminal
+		printf("\r\nWAIT when IONI is off PIL[%d] PC[%6o] PID[0x%4X] PIE[0x%4X] IONI[%d] PONI[%d] STS_HI[%4X] STS_LO[%4X]\r\n", gPIL, gPC, gPID, gPIE, STS_IONI, STS_PONI, gReg->reg_STS, gReg->reg[gPIL][_STS]);
 		CurrentCPURunMode = STOP;
 		return;
 	}
+
 	if (CurrLEVEL == 0)
-	{	
-		// Cant go lower
-	}
-	else
 	{
-		temp = ~(1 << CurrLEVEL); /* Now we have a 0 in the position we want */
-		gPID &= temp;			  /* Give up this level */
-
-		gCHKIT = true; // recalc PK
-
-		// Switch level before exiting
-		checkAndSwitch();
+		// Cant go lower
+		return;
 	}
+	
+	
+	temp = ~(1 << CurrLEVEL); /* Now we have a 0 in the position we want */
+	gPID &= temp;			  /* Give up this level */
+
+	gCHKIT = true; // recalc PK (and do a level switch if needed)
 }
 
 /* LWCS (Privileged)
@@ -2875,7 +3093,6 @@ void ndfunc_lwcs(ushort instr)
 	// LWCS is a no-operation on the ND-110
 	// The ND-110 is software compatible but nor microcode compatible and writing to the writable control store has no meaning in the ND-110.
 	// A no-operation is executed so that programs written for the ND-100 and NORD-10 can continue
-	
 
 	if (!CheckPriv())
 		return;
@@ -2958,7 +3175,7 @@ void DoTRR(ushort instr)
 		break;
 	case 07: // TRR PIE
 		gPIE = gA;
-		// gCHKIT = true; // we need to check PK after this
+		gCHKIT = true; // we need to check PK after this
 		if (trace)
 			trace_step(1, "PIE<=A", 0);
 		break;
@@ -3197,9 +3414,6 @@ bool IsSkip(ushort instr)
 		trace_step(1, (char *)trace_temp_str, 0);
 	}
 
-	// if <dr>=0, a no-operation occurs !! NONONONO!! RONNY
-	//if (dr == 0) return false;
-
 	/* Ok, lets set flags */
 	z = (0 == (desti - source)) ? 1 : 0;
 	sgr = sd - ss;
@@ -3411,6 +3625,7 @@ void DoIDENT(ushort priolevel)
 			fprintf(debugfile, "DoIDENT IOX Error lvl=%d\n", priolevel);
 		if (priolevel != 13)	   // ignore RTC
 			interrupt(14, 1 << 7); /* IOX Error if no IDENT code found */
+
 		if (trace)
 			trace_pre(2, "PID", gPID, "PIE", gPIE);
 	}
@@ -3537,7 +3752,7 @@ void DoMOVEW(ushort instr)
 			break;
 		case 2: // move from PT to physical memory
 			temp = MemoryRead(sourceAddress, false);
-			PhysMemWrite(temp, destinationAddress);
+			WritePhysicalMemory(destinationAddress, temp, true);
 			break;
 		case 3: // move from APT to PT
 			temp = (ushort)MemoryRead(sourceAddress, true);
@@ -3549,20 +3764,20 @@ void DoMOVEW(ushort instr)
 			break;
 		case 5: // move from APT to physical memory
 			temp = (ushort)MemoryRead(sourceAddress, true);
-			PhysMemWrite(temp, destinationAddress);
+			WritePhysicalMemory(destinationAddress, temp, true);
 			break;
 		case 6: // move from physical memory to PT
-			temp = PhysMemRead(sourceAddress);
+			temp = ReadPhysicalMemory(sourceAddress, true);
 			MemoryWrite(temp, destinationAddress, false, 2);
 			break;
 		case 7: // move from physical memory to APT
-			temp = PhysMemRead(sourceAddress);
+			temp = ReadPhysicalMemory(sourceAddress, true);
 			MemoryWrite(temp, destinationAddress, true, 2);
 			break;
 
 		case 8: // move from physical memory to physical memory
-			temp = PhysMemRead(sourceAddress);
-			PhysMemWrite(temp, destinationAddress);
+			temp = ReadPhysicalMemory(sourceAddress, true);
+			WritePhysicalMemory(destinationAddress, temp, true);
 			break;
 
 		default:
@@ -3779,8 +3994,6 @@ void add_A_mem(ushort eff_addr, bool UseAPT)
 
 	gA = (temp & 0xFFFF);
 }
-
-
 
 /*
  * Move bytes in memory
@@ -4024,8 +4237,6 @@ void rdiv(ushort instr)
 
 	int quotient = dividend / divisor;
 
-	//printf("RDIV: %d = %d / %d [A:%d, D:%d]\r\n", quotient, dividend, divisor, gA, gD);
-
 	int reminder = dividend - (quotient * divisor);
 
 	// Check for carry (ie, value is bigger than 16 bits)
@@ -4074,7 +4285,7 @@ void rmpy_org(ushort instr)
 ///
 /// Code: 141 200
 ///
-/// The <sr> and <dr> fields are used to specify the two operands to be mutiplied (represented as two’s complement integers), the codes are the same as for ROP.
+/// The <sr> and <dr> fields are used to specify the two operands to be mutiplied (represented as two's complement integers), the codes are the same as for ROP.
 /// The result is a 32 bit signed integer which will be placed in the A and D registers with the 16 most significant bits in the A register and the 16 least significant bits in the D register.
 ///
 /// Multiply source with destination.Result in double accumulator
@@ -4103,7 +4314,6 @@ void rmpy(ushort instr)
 
 	int result = source_value * dest_value;
 
-	//printf("RMPY: %d = %d * %d\r\n", result, source_value, dest_value);
 
 	if (abs(result) > INT_MAX)
 	{
@@ -4114,7 +4324,7 @@ void rmpy(ushort instr)
 	else
 	{
 		setbit(_STS, _Q, 0);
-		setbit(_STS, _O, 0);
+		//setbit(_STS, _O, 0); NO!
 	}
 
 	// Check for carry (ie, value is bigger than 16 bits)
@@ -4136,11 +4346,12 @@ void rmpy(ushort instr)
 /*
  * MPY
  */
-void mpy(ushort instr)
+void mpy(ushort operand)
 {
 	int a, b, result;
 	a = (sshort)gA;
 
+	gEA = New_GetEffectiveAddr(operand, &gUseAPT);
 	ushort mem = MemoryRead(gEA, gUseAPT);
 	b = (sshort)mem;
 
@@ -4150,7 +4361,6 @@ void mpy(ushort instr)
 	if (debug)
 		fprintf(debugfile, "MPY: %d = %d * %d\n", result, a, b);
 
-	//printf("MPY: %d = %d * %d\r\n", result, a, b);
 
 	if (abs(result) > 32767)
 	{ /* Set O and Q */
@@ -4211,7 +4421,7 @@ void ndfunc_shde(ushort instr)
 /************************ BCD instructions *************************/
 
 void setreg(int r, int val)
-{ 
+{
 	if (r == _STS)
 	{
 		gReg->reg[CurrLEVEL][r] = (ushort)(val & 0x00FF); // Only lower 8 bits
@@ -4232,7 +4442,7 @@ ushort getbit(ushort regnum, ushort stsbit)
 	}
 	else
 	{
-		tmp =gReg->reg[CurrLEVEL][regnum];
+		tmp = gReg->reg[CurrLEVEL][regnum];
 	}
 	result = (tmp >> stsbit) & 1;
 	return result;
@@ -4285,7 +4495,7 @@ bool setPIL(char newLevel)
 void setbit(ushort regnum, ushort stsbit, char val)
 {
 
-	if ((regnum == _STS) && (stsbit>7))
+	if ((regnum == _STS) && (stsbit > 7))
 	{
 		setbit_STS_MSB(stsbit, val);
 		return;
@@ -4306,12 +4516,7 @@ void setbit(ushort regnum, ushort stsbit, char val)
 	{
 		thebit = (1 << stsbit) ^ 0xFFFF;
 		gReg->reg[CurrLEVEL][regnum] = (thebit & gReg->reg[CurrLEVEL][regnum]);
-
-		if (stsbit == _Z) // error bit is cleared
-		{
-			gCHKIT = true; // we need to check PK after this
-		}
-	}	
+	}
 }
 
 short signExtend(ushort x)
@@ -4338,14 +4543,14 @@ ushort do_add(ushort a, ushort b, ushort k)
 	/* O(static overflow), Q (dynamic overflow) */
 	is_diff = (((1 << 15) & a) ^ ((1 << 15) & b)); /* is bit 15 of the two operands different? */
 	if (!(is_diff) && (((1 << 15) & a) ^ ((1 << 15) & tmp)))
-	{ /* if equal and result is different... */
+	{						 /* if equal and result is different... */
 		setbit(_STS, _O, 1); // Static overflow
 		setbit(_STS, _Q, 1); // Dynamic overflow (Instruction test shows Q must be set)
 	}
 	else
 	{
 		setbit(_STS, _Q, 0);
-		setbit(_STS, _O, 0);
+		//setbit(_STS, _O, 0); NO!
 	}
 	return (ushort)tmp;
 }
@@ -4547,25 +4752,19 @@ void mopc_thread()
  */
 void recalcInternalInterruptBits()
 {
-	// Special treatment for Check for Z (error) flag
-
+	// Check for Z (error) flag	
 	if (getbit(_STS, _Z))
 	{
-		gIID = gIID |= 1 << 5;
-	}
-	else
-	{
-		//gIID = gIID & ~(1 << 5);
+		gIID |= 1 << 5;
 	}
 
 	if ((gIID & gIIE) != 0)
 	{
 		// Set PID bit 14 to trigger LVL change to 14
 		gPID |= (1 << 14);
-
 		gIIC = calcIIC();
+		gCHKIT = true; // removing this makes sintran crash during boot  // System malfunction. Sintran halt in ERRFATAL. L-reg: 042713
 	}
-
 }
 
 // Calculate PK based on PID and PIE
@@ -4579,7 +4778,7 @@ void calcPK()
 	i = gPIE & gPID;
 	//	if (debug) fprintf(debugfile,"PT DEB CheckPK: gPIE=%06o gPID=%06o i=%06o gPK=%d gPIL=%d\n",gPIE,gPID,i,gPK,gPIL);
 	if (i)
-	{ 
+	{
 		// Check for detected and enabled bits. Highest bits has highest priority
 		for (lvl = 15; lvl >= 0; lvl--)
 		{
@@ -4593,7 +4792,7 @@ void calcPK()
 }
 
 /*
- * Main interruptsetting routine.
+ * Internal interrupt setting routine.
  * IN: interrupt level and possible subbitfield
  * for those levels that has that. (LVL 14).
  */
@@ -4611,18 +4810,14 @@ void interrupt(ushort lvl, ushort sub)
 		gPID |= (1 << lvl);
 	}
 
-	//printf("Interrupt at %d, sub=0x%x. GID_BIT_= %d\r\n", lvl, sub, (gIID>>8)&1);	
+	// printf("Interrupt at %d, sub=0x%x. GID_BIT_= %d\r\n", lvl, sub, (gIID>>8)&1);
 	recalcInternalInterruptBits();
 
 	// Check for MPV (bit 2), PF (bit 3), or illegal instruction (bit 4)
 	if (lvl == 14 && (sub & ((1 << 2) | (1 << 3) | (1 << 4))))
 	{
-#if DEBUG_TRAP
-		if ((gPC == 074665) || (gPC == 0130000) || (gPC == 0121465))
-		{
-			printf("Debug: gPC=%06o, sub=%d\n", gPC, sub);
-		}
-		printf("TRAP at %6o, sub=%d \r\n", gPC, sub);
+#ifdef DEBUG_TRAP
+		printf("TRAP at P:[%6o], sub=%d \r\n", gPC, sub);
 #endif
 		longjmp(cpu_jmp_buf, 1); // Jump back to cpurun() in cpu_thread
 	}
@@ -4643,7 +4838,7 @@ void device_interrupt(ushort interruptBits)
 
 	if (tmp != gPID)
 	{
-		gCHKIT = true; // Check if we need to update PK based on new interrupts
+		gCHKIT = true; // Check if we need to update PK based on new interrupts		
 	}
 }
 
@@ -5139,32 +5334,11 @@ uint32_t MemoryWritePhysical(ulong addr, uint32_t value)
 }
 #endif
 
-
-
-bool executeLevelShift()
-{
-/* Time to change runlevel */
-#ifdef DEBUG_PK_SWITCH
-	bool isRTC = ((gPVL == 13) || (gPIL == 13));
-
-	if (!isRTC)
-		printf("Switching from %d P[%6o] to %d P[%6o]\r\n", gPIL, gPC, gPK, gReg->reg[gPK][_P]);
-#endif
-	bool wasLevelShift = setPIL(gPK); /* Change to new runlevel */
-
-#ifdef DEBUG_PK_SWITCH
-	if (!isRTC)
-		printf("New pc after switch %6o\r\n", gPC);
-#endif
-
-	return wasLevelShift;
-}
-
 void checkAndSwitch()
 {
 	if (gCHKIT)
 	{
-		//gCHKIT = false; // reset flag
+		gCHKIT = false; // reset flag
 
 		// recalc internal interrupt bits
 		recalcInternalInterruptBits();
@@ -5176,22 +5350,17 @@ void checkAndSwitch()
 
 		if (gPK != gPIL)
 		{
-			bool wasLevelShift = executeLevelShift();
+			//printf("Switching from %d P[%6o] to %d P[%6o]\r\n", gPIL, gPC, gPK, gReg->reg[gPK][_P]);
+			setPIL(gPK); /* Change to new runlevel */
 
-			// Make sure that the RTC interrupt is cleared when we leave runlevel 13
-			//
-			// Real Time Clock is a bit special as its not a "real" ND bus device but is a device on the CPU Board.
-			// Some code does an "IDENT PL13" that resets the interrupt flag, some disables interrupt (that resets the interrupt flag)
-			// Some dont do anything, like TPE-MON-100-B01.
-			// It seems the CPU board has a "special" way of clearing the interrupt flag that I havent understood 100%.
-			// Anyway, clearing the RTC interrupt bits after leaving Level 13 fixes the problem.
-			if (gPVL == 13)
+#ifdef DEBUG_PK_SWITCH
+			bool isRTC = ((gPVL == 13) || (gPIL == 13));
+			if (!isRTC)
 			{
-				uint16_t interruptBits = DeviceManager_ClearRTC_INT();		        			 
-    			device_interrupt(interruptBits);				
+				printf("Switched from %d P[%6o] to %d P[%6o]\r\n", gPVL, gReg->reg[gPVL][_P], gPIL, gReg->reg[gPIL][_P]);
+				printf("New pc after switch %6o\r\n", gPC);
 			}
-
-			return wasLevelShift;
+#endif
 		}
 	}
 	return false;
@@ -5230,7 +5399,6 @@ void cpurun()
 
 		// Check for level shift (typically after an interrupt or WAIT instruction)
 		checkAndSwitch();
-		
 
 		prefetch(); /* works because gPC should already be setup when cpurun is called */
 		gReg->myreg_IR = gReg->myreg_PFB;
@@ -5290,18 +5458,7 @@ void cpu_start()
 		// In this case, the P register points to the instruction after the instruction causing the internal hardware status interrupt.
 		// When the cause of the internal hardware status interrupt has been removed, the restart point will be found by subtracting one from the P register.
 
-	/*
-		if ((gPGS & (1 << 15)) == 0)
-		{
-			// Data cycle fault - PC need to point to next instruction
-			gPC = savePC + 1;
-		}
-		else
-		{
-			gPC = savePC;
-		}
-		*/
-#if DEBUG_TRAP
+#ifdef DEBUG_TRAP
 		printf("CPU: Interrupt handler returned, PC=%06o, PGS=%04x\n", gPC, gPGS);
 #endif
 	}
@@ -5385,7 +5542,7 @@ void PrintMemTrace()
 
 void Instruction_Add(int opcode, void *funcpointer)
 {
-	instr_funcs[opcode] = funcpointer;	
+	instr_funcs[opcode] = funcpointer;
 }
 
 void Instruction_Add_Range(int start, int stop, void *funcpointer)
@@ -5419,128 +5576,123 @@ void Setup_Instructions()
 {
 	Instruction_Add_Range(0000000, 0177777, &illegal_instr); /* First make all instructions by default point to illegal_instr  */
 
-	//Instruction_Add_Range(0000000, 0003777, &ndfunc_stz); /* STZ  */
+	// Instruction_Add_Range(0000000, 0003777, &ndfunc_stz); /* STZ  */
 	Instruction_Add_Mask(0000000, 0xF800, &ndfunc_stz);
 
-	//Instruction_Add_Range(0004000, 0007777, &ndfunc_sta); /* STA  */
+	// Instruction_Add_Range(0004000, 0007777, &ndfunc_sta); /* STA  */
 	Instruction_Add_Mask(0004000, 0xF800, &ndfunc_sta);
 
-	//Instruction_Add_Range(0010000, 0013777, &ndfunc_stt); /* STT  */
+	// Instruction_Add_Range(0010000, 0013777, &ndfunc_stt); /* STT  */
 	Instruction_Add_Mask(0010000, 0xF800, &ndfunc_stt);
 
-	//Instruction_Add_Range(0014000, 0017777, &ndfunc_stx); /* STX  */
+	// Instruction_Add_Range(0014000, 0017777, &ndfunc_stx); /* STX  */
 	Instruction_Add_Mask(0014000, 0xF800, &ndfunc_stx);
 
-	//Instruction_Add_Range(0020000, 0023777, &ndfunc_std); /* STD  */
+	// Instruction_Add_Range(0020000, 0023777, &ndfunc_std); /* STD  */
 	Instruction_Add_Mask(0020000, 0xF800, &ndfunc_std);
 
-	//Instruction_Add_Range(0024000, 0027777, &ndfunc_ldd); /* LDD  */
+	// Instruction_Add_Range(0024000, 0027777, &ndfunc_ldd); /* LDD  */
 	Instruction_Add_Mask(0024000, 0xF800, &ndfunc_ldd);
 
-	//Instruction_Add_Range(0030000, 0033777, &ndfunc_stf); /* STF  */
+	// Instruction_Add_Range(0030000, 0033777, &ndfunc_stf); /* STF  */
 	Instruction_Add_Mask(0030000, 0xF800, &ndfunc_stf);
 
-	//Instruction_Add_Range(0034000, 0037777, &ndfunc_ldf); /* LDF  */
+	// Instruction_Add_Range(0034000, 0037777, &ndfunc_ldf); /* LDF  */
 	Instruction_Add_Mask(0034000, 0xF800, &ndfunc_ldf);
 
-	//Instruction_Add_Range(0040000, 0043777, &ndfunc_min); /* MIN  */
+	// Instruction_Add_Range(0040000, 0043777, &ndfunc_min); /* MIN  */
 	Instruction_Add_Mask(0040000, 0xF800, &ndfunc_min);
 
-	//Instruction_Add_Range(0044000, 0047777, &ndfunc_lda); /* LDA  */
+	// Instruction_Add_Range(0044000, 0047777, &ndfunc_lda); /* LDA  */
 	Instruction_Add_Mask(0044000, 0xF800, &ndfunc_lda);
 
-	//Instruction_Add_Range(0050000, 0053777, &ndfunc_ldt); /* LDT  */
+	// Instruction_Add_Range(0050000, 0053777, &ndfunc_ldt); /* LDT  */
 	Instruction_Add_Mask(0050000, 0xF800, &ndfunc_ldt);
 
-	//Instruction_Add_Range(0054000, 0057777, &ndfunc_ldx); /* LDX  */
+	// Instruction_Add_Range(0054000, 0057777, &ndfunc_ldx); /* LDX  */
 	Instruction_Add_Mask(0054000, 0xF800, &ndfunc_ldx);
 
-	//Instruction_Add_Range(0060000, 0063777, &ndfunc_add); /* ADD  */
+	// Instruction_Add_Range(0060000, 0063777, &ndfunc_add); /* ADD  */
 	Instruction_Add_Mask(0060000, 0xF800, &ndfunc_add);
 
-	//Instruction_Add_Range(0064000, 0067777, &ndfunc_sub); /* SUB  */
+	// Instruction_Add_Range(0064000, 0067777, &ndfunc_sub); /* SUB  */
 	Instruction_Add_Mask(0064000, 0xF800, &ndfunc_sub);
 
-	//Instruction_Add(0070000, 0073777, &ndfunc_and); /* AND  */
+	// Instruction_Add(0070000, 0073777, &ndfunc_and); /* AND  */
 	Instruction_Add_Mask(0070000, 0xF800, &ndfunc_and);
 
-	//Instruction_Add_Range(0074000, 0077777, &ndfunc_ora); /* ORA  */
+	// Instruction_Add_Range(0074000, 0077777, &ndfunc_ora); /* ORA  */
 	Instruction_Add_Mask(0074000, 0xF800, &ndfunc_ora);
 
-	//Instruction_Add_Range(0100000, 0103777, &ndfunc_fad); /* FAD  */
+	// Instruction_Add_Range(0100000, 0103777, &ndfunc_fad); /* FAD  */
 	Instruction_Add_Mask(0100000, 0xF800, &ndfunc_fad);
 
-	//Instruction_Add_Range(0104000, 0107777, &ndfunc_fsb); /* FSB  */
+	// Instruction_Add_Range(0104000, 0107777, &ndfunc_fsb); /* FSB  */
 	Instruction_Add_Mask(0104000, 0xF800, &ndfunc_fsb);
 
-	//Instruction_Add_Range(0110000, 0113777, &ndfunc_fmu); /* FMU  */
+	// Instruction_Add_Range(0110000, 0113777, &ndfunc_fmu); /* FMU  */
 	Instruction_Add_Mask(0110000, 0xF800, &ndfunc_fmu);
 
-	//Instruction_Add_Range(0114000, 0117777, &ndfunc_fdv); /* FDV  */
+	// Instruction_Add_Range(0114000, 0117777, &ndfunc_fdv); /* FDV  */
 	Instruction_Add_Mask(0114000, 0xF800, &ndfunc_fdv);
-	
-	//Instruction_Add_Range(0120000, 0123777, &mpy);		/* MPY  */
+
+	// Instruction_Add_Range(0120000, 0123777, &mpy);		/* MPY  */
 	Instruction_Add_Mask(0120000, 0xF800, &mpy);
 
-
-	//Instruction_Add_Range(0124000, 0127777, &ndfunc_jmp); /* JMP  */
+	// Instruction_Add_Range(0124000, 0127777, &ndfunc_jmp); /* JMP  */
 	Instruction_Add_Mask(0124000, 0xF800, &ndfunc_jmp);
 
-	//Instruction_Add_Range(0134000, 0137777, &ndfunc_jpl); /* JPL  */
+	// Instruction_Add_Range(0134000, 0137777, &ndfunc_jpl); /* JPL  */
 	Instruction_Add_Mask(0134000, 0xF800, &ndfunc_jpl);
 
-
 	// CJPs - Conditional jumps
-	//Instruction_Add_Range(0130000, 0130377, &ndfunc_jap); /* JAP */
+	// Instruction_Add_Range(0130000, 0130377, &ndfunc_jap); /* JAP */
 	Instruction_Add_Mask(0130000, 0xFF00, &ndfunc_jap);
 
-	//Instruction_Add_Range(0130400, 0130777, &ndfunc_jan); /* JAN */
+	// Instruction_Add_Range(0130400, 0130777, &ndfunc_jan); /* JAN */
 	Instruction_Add_Mask(0130400, 0xFF00, &ndfunc_jan);
 
-	//Instruction_Add_Range(0131000, 0131377, &ndfunc_jaz); /* JAZ */
+	// Instruction_Add_Range(0131000, 0131377, &ndfunc_jaz); /* JAZ */
 	Instruction_Add_Mask(0131000, 0xFF00, &ndfunc_jaz);
 
-	//Instruction_Add_Range(0131400, 0131777, &ndfunc_jaf); /* JAF */
+	// Instruction_Add_Range(0131400, 0131777, &ndfunc_jaf); /* JAF */
 	Instruction_Add_Mask(0131400, 0xFF00, &ndfunc_jaf);
 
-	//Instruction_Add_Range(0132000, 0132377, &ndfunc_jpc); /* JPC */
+	// Instruction_Add_Range(0132000, 0132377, &ndfunc_jpc); /* JPC */
 	Instruction_Add_Mask(0132000, 0xFF00, &ndfunc_jpc);
 
-	//Instruction_Add_Range(0132400, 0132777, &ndfunc_jnc); /* JNC */
+	// Instruction_Add_Range(0132400, 0132777, &ndfunc_jnc); /* JNC */
 	Instruction_Add_Mask(0132400, 0xFF00, &ndfunc_jnc);
 
-	//Instruction_Add_Range(0133000, 0133377, &ndfunc_jxz); /* JXZ */
+	// Instruction_Add_Range(0133000, 0133377, &ndfunc_jxz); /* JXZ */
 	Instruction_Add_Mask(0133000, 0xFF00, &ndfunc_jxz);
 
-	//Instruction_Add_Range(0133400, 0133777, &ndfunc_jxn); /* JXN */
+	// Instruction_Add_Range(0133400, 0133777, &ndfunc_jxn); /* JXN */
 	Instruction_Add_Mask(0133400, 0xFF00, &ndfunc_jxn);
 
-													
+	// Instruction_Add(0140000, 0143777, &ndfunc_skp);
+	Instruction_Add_Mask(0140000, 0xF8C0, &ndfunc_skp);
 
-	//Instruction_Add(0140000, 0143777, &ndfunc_skp);
- 	Instruction_Add_Mask(0140000, 0xF8C0, &ndfunc_skp);
+	// BCD (CX)
+	Instruction_Add(0140120, &ndfunc_addd);	  /* ADDD  */
+	Instruction_Add(0140121, &ndfunc_subd);	  /* SUBD  */
+	Instruction_Add(0140122, &ndfunc_comd);	  /* COMD  */
+	Instruction_Add(0140124, &ndfunc_pack);	  /* PACK  */
+	Instruction_Add(0140125, &ndfunc_unpack); /* UPACK */
+	Instruction_Add(0140126, &ndfunc_shde);	  /* SHDE  */
 
-    // BCD (CX)
-	Instruction_Add(0140120,&ndfunc_addd);     /* ADDD  */
-	Instruction_Add(0140121,&ndfunc_subd);     /* SUBD  */
-	Instruction_Add(0140122,&ndfunc_comd);     /* COMD  */
-	Instruction_Add(0140124,&ndfunc_pack);     /* PACK  */
-	Instruction_Add(0140125,&ndfunc_unpack);   /* UPACK */
-	Instruction_Add(0140126,&ndfunc_shde);     /* SHDE  */
-
-    Instruction_Add(0140123,&DoTSET);		   /* TSET  */
-	Instruction_Add(0140127,&DoRDUS);		   /* RDUS  */
+	Instruction_Add(0140123, &DoTSET); /* TSET  */
+	Instruction_Add(0140127, &DoRDUS); /* RDUS  */
 
 	{ // CE; CX
 
-		Instruction_Add(0140130, &ndfunc_bfill);  /* BFILL */
-		Instruction_Add(0140131, &DoMOVB);		  /* MOVB  */
-		Instruction_Add(0140132, &DoMOVBF);	      /* MOVBF */
+		Instruction_Add(0140130, &ndfunc_bfill); /* BFILL */
+		Instruction_Add(0140131, &DoMOVB);		 /* MOVB  */
+		Instruction_Add(0140132, &DoMOVBF);		 /* MOVBF */
 
-		//Instruction_Add(0140131, &ndfunc_movb);  /* MOVB  */
-  	 	//Instruction_Add(0140132, &ndfunc_movbf); /* MOVBF */
+		// Instruction_Add(0140131, &ndfunc_movb);  /* MOVB  */
+		// Instruction_Add(0140132, &ndfunc_movbf); /* MOVBF */
 	}
-
 
 	switch (CurrentCPUType)
 	{
@@ -5556,8 +5708,8 @@ void Setup_Instructions()
 
 	{ // CE; CX
 
-		Instruction_Add(0140134, &ndfunc_init);  /* INIT  */
-		Instruction_Add(0140135, &ndfunc_entr);  /* ENTR  */
+		Instruction_Add(0140134, &ndfunc_init);	 /* INIT  */
+		Instruction_Add(0140135, &ndfunc_entr);	 /* ENTR  */
 		Instruction_Add(0140136, &ndfunc_leave); /* LEAVE */
 		Instruction_Add(0140137, &ndfunc_eleav); /* ELEAV */
 	}
@@ -5588,7 +5740,7 @@ void Setup_Instructions()
 
 		break;
 	default:
-		//Instruction_Add_Range(0140500, 0140577, &illegal_instr); /* USER2 (microcode defined by user or illegal instruction otherwise) */
+		// Instruction_Add_Range(0140500, 0140577, &illegal_instr); /* USER2 (microcode defined by user or illegal instruction otherwise) */
 		break;
 	}
 
@@ -5613,24 +5765,24 @@ void Setup_Instructions()
 		break;
 	}
 
-    if(true)
+	if (true)
 	{
 		// ND100-CX and ND110-CX only
 
-		Instruction_Add(0140300, &ndfunc_setpt); /* SETPT */
-		Instruction_Add(0140301, &ndfunc_clept); /* CLEPT */
-		Instruction_Add(0140302, &ndfunc_clnreent);	  /* CLNREENT */
+		Instruction_Add(0140300, &ndfunc_setpt);		 /* SETPT */
+		Instruction_Add(0140301, &ndfunc_clept);		 /* CLEPT */
+		Instruction_Add(0140302, &ndfunc_clnreent);		 /* CLNREENT */
 		Instruction_Add(0140303, &ndfunc_chreent_pages); /* CHREENT-PAGES */
-		Instruction_Add(0140304, &ndfunc_clepu);		  /* CLEPU */
+		Instruction_Add(0140304, &ndfunc_clepu);		 /* CLEPU */
 	}
-	Instruction_Add_Mask(0141200, 0xFFC0, &rmpy); /* RMPY */
-	Instruction_Add_Mask(0141600, 0xFFC0, &rdiv); /* RDIV */
+	Instruction_Add_Mask(0141200, 0xFFC0, &rmpy);		 /* RMPY */
+	Instruction_Add_Mask(0141600, 0xFFC0, &rdiv);		 /* RDIV */
 	Instruction_Add_Mask(0142200, 0xFFC0, &ndfunc_lbyt); /* LBYT */
 	Instruction_Add_Mask(0142600, 0xFFC0, &ndfunc_sbyt); /* SBYT */
 
 	// CX instructions
-	Instruction_Add(0142700, &ndfunc_geco);  /* GECO - Undocumented instruction */
-	Instruction_Add_Mask(0143100, 0xFFC0, &DoMOVEW);	  /* MOVEW */	
+	Instruction_Add(0142700, &ndfunc_geco);				 /* GECO - Undocumented instruction */
+	Instruction_Add_Mask(0143100, 0xFFC0, &DoMOVEW);	 /* MOVEW */
 	Instruction_Add_Mask(0143200, 0xFFC0, &ndfunc_mix3); /* MIX3 */
 
 	Instruction_Add_Mask(0143300, 0xFFC7, &ndfunc_ldatx); /* LDATX */
@@ -5641,7 +5793,6 @@ void Setup_Instructions()
 	Instruction_Add_Mask(0143305, 0xFFC7, &ndfunc_stztx); /* STZTX */
 	Instruction_Add_Mask(0143306, 0xFFC7, &ndfunc_stdtx); /* STDTX */
 
-
 	Instruction_Add(0143500, &ndfunc_lwcs); /* LWCS */
 
 	Instruction_Add(0143604, &ndfunc_ident); /* IDENT PL10 */
@@ -5649,14 +5800,14 @@ void Setup_Instructions()
 	Instruction_Add(0143622, &ndfunc_ident); /* IDENT PL12 */
 	Instruction_Add(0143643, &ndfunc_ident); /* IDENT PL13 */
 
-	Instruction_Add_Range(0144000, 0147777, &regop);		  /* --ROPS-- */
-	Instruction_Add_Mask(0150000, 0xFFF0, &DoTRA);		  /* TRA */
-	Instruction_Add_Mask(0150100, 0xFFF0, &DoTRR);		  /* TRR */
-	Instruction_Add_Mask(0150200, 0xFFF0, &DoMCL);		  /* MCL */
-	Instruction_Add_Mask(0150300, 0xFFF0, &DoMST);		  /* MST */
-	Instruction_Add(0150400,&ndfunc_opcom); /* OPCOM */
-	Instruction_Add(0150401,&ndfunc_iof);	  /* IOF */
-	Instruction_Add(0150402,&ndfunc_ion);	  /* ION */
+	Instruction_Add_Range(0144000, 0147777, &regop); /* --ROPS-- */
+	Instruction_Add_Mask(0150000, 0xFFF0, &DoTRA);	 /* TRA */
+	Instruction_Add_Mask(0150100, 0xFFF0, &DoTRR);	 /* TRR */
+	Instruction_Add_Mask(0150200, 0xFFF0, &DoMCL);	 /* MCL */
+	Instruction_Add_Mask(0150300, 0xFFF0, &DoMST);	 /* MST */
+	Instruction_Add(0150400, &ndfunc_opcom);		 /* OPCOM */
+	Instruction_Add(0150401, &ndfunc_iof);			 /* IOF */
+	Instruction_Add(0150402, &ndfunc_ion);			 /* ION */
 	switch (CurrentCPUType)
 	{
 	case ND110PCX:
@@ -5666,11 +5817,11 @@ void Setup_Instructions()
 	default:
 		break;
 	}
-	Instruction_Add(0150404,&ndfunc_pof);	 /* POF */
-	Instruction_Add(0150405,&ndfunc_piof); /* PIOF */
-	Instruction_Add(0150406,&ndfunc_sex);	 /* SEX */
-	Instruction_Add(0150407,&ndfunc_rex);	 /* REX */
-	Instruction_Add(0150410,&ndfunc_pon);	 /* PON */
+	Instruction_Add(0150404, &ndfunc_pof);	/* POF */
+	Instruction_Add(0150405, &ndfunc_piof); /* PIOF */
+	Instruction_Add(0150406, &ndfunc_sex);	/* SEX */
+	Instruction_Add(0150407, &ndfunc_rex);	/* REX */
+	Instruction_Add(0150410, &ndfunc_pon);	/* PON */
 	Instruction_Add(0150412, &ndfunc_pion); /* PION */
 
 	Instruction_Add(0150415, &ndfunc_ioxt); /* IOXT */
@@ -5679,24 +5830,23 @@ void Setup_Instructions()
 
 	Instruction_Add_Mask(0151000, 0xFF00, &DoWAIT);		/* WAIT */
 	Instruction_Add_Mask(0151400, 0xFF00, &ndfunc_nlz); /* NLZ */
-	Instruction_Add_Mask(0152000, 0xFF00, &ndfunc_dnz); /* DNZ */	
+	Instruction_Add_Mask(0152000, 0xFF00, &ndfunc_dnz); /* DNZ */
 	Instruction_Add_Mask(0152402, 0xFF07, &ndfunc_srb); /* SRB */
 	Instruction_Add_Mask(0152600, 0xFF07, &ndfunc_lrb); /* LRB */
 	Instruction_Add_Mask(0153000, 0xFF00, &ndfunc_mon); /* MON */
 	Instruction_Add_Mask(0153400, 0xFF80, &ndfunc_irw); /* IRW */
 	Instruction_Add_Mask(0153600, 0xFF80, &ndfunc_irr); /* IRR */
 
-	//Instruction_Add_Range(0154000, 0157777, &ndfunc_shifts); /* SHT, SHD, SHA, SAD */  /* NOTE: this is actually a ND1 instruction, so need to check which NDs implement it later */
-	Instruction_Add_Mask(0154000, 0x7980, &ndfunc_shifts); //SHT
-	Instruction_Add_Mask(0154200, 0x7980, &ndfunc_shifts); //SHD
-	Instruction_Add_Mask(0154400, 0x7980, &ndfunc_shifts); //SHA
-	Instruction_Add_Mask(0154600, 0x7980, &ndfunc_shifts); //SAD
+	// Instruction_Add_Range(0154000, 0157777, &ndfunc_shifts); /* SHT, SHD, SHA, SAD */  /* NOTE: this is actually a ND1 instruction, so need to check which NDs implement it later */
+	Instruction_Add_Mask(0154000, 0x7980, &ndfunc_shifts); // SHT
+	Instruction_Add_Mask(0154200, 0x7980, &ndfunc_shifts); // SHD
+	Instruction_Add_Mask(0154400, 0x7980, &ndfunc_shifts); // SHA
+	Instruction_Add_Mask(0154600, 0x7980, &ndfunc_shifts); // SAD
 
-	//Instruction_Add_Mask(0160000, 0xFFF0, &ndfunc_iot); /* IOT  - ND1 specific, but exists on all CPU's*/	
+	// Instruction_Add_Mask(0160000, 0xFFF0, &ndfunc_iot); /* IOT  - ND1 specific, but exists on all CPU's*/
 	Instruction_Add_Mask(0161000, 0xFFF0, &ndfunc_iot); /* IOT  - ND1 specific, but exists on all CPU's*/
 
-
-	//Instruction_Add_Mask(0161000, 0xF800, &ndfunc_iox); /* IOX */
+	// Instruction_Add_Mask(0161000, 0xF800, &ndfunc_iox); /* IOX */
 	Instruction_Add_Mask(0164000, 0xF800, &ndfunc_iox); /* IOX */
 
 	Instruction_Add_Mask(0170000, 0xFF00, &ndfunc_sab); /* SAB */
@@ -5708,6 +5858,6 @@ void Setup_Instructions()
 	Instruction_Add_Mask(0173000, 0xFF00, &ndfunc_aat); /* AAT */
 	Instruction_Add_Mask(0173400, 0xFF00, &ndfunc_aax); /* AAX */
 
-	Instruction_Add_Range(0174000, 0177777, &do_bops);	/* Bit Operation Instructions */
-													/* Bit operations, 16 of them, 4 BSET,4 BSKP and 8 others */
+	Instruction_Add_Range(0174000, 0177777, &do_bops); /* Bit Operation Instructions */
+													   /* Bit operations, 16 of them, 4 BSET,4 BSKP and 8 others */
 }

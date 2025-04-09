@@ -282,7 +282,7 @@ extern void disasm_set_isdata(ushort addr);
 extern struct display_panel *gPAP;
 
 void checkAndSwitch();
-bool executeLevelShift();
+
 
 bool CheckPriv();
 
