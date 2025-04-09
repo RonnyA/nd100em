@@ -23,8 +23,8 @@
 #include <string.h>
 #include "deviceSMD.h"
 
-//#define DEBUG_DETAIL
-#define DEBUG_HIGH_LEVEL
+// #define DEBUG_DETAIL
+//#define DEBUG_HIGH_LEVEL
 
 static void SMD_Reset(Device *self)
 {
@@ -144,18 +144,18 @@ static uint16_t SMD_Read(Device *self, uint32_t address)
             Bit 15: Address Field
                 This bit indicates that the last field read from the disk was the address field within a sector (used for ECC processing after a data check only).
 */
-            
+
             if ((data->controllerType == CONTR_SMD_15MHZ) || (data->controllerType == CONTR_SMD_10MHZ))
             {
                 // Bit 12 = Always 1 for 15Mhz SMD. This bit was always 0 on the NORD—10 controller.
                 // If this is 1 then SINTRAN M will not r/w/boot from DISC-75-1 ??
-                 data->seekCondition.bits.isSMD15Mhz = 1;                                     
+                data->seekCondition.bits.isSMD15Mhz = 1;
             }
             else
             {
                 data->seekCondition.bits.isSMD15Mhz = 0;
             }
-            data->seekCondition.bits.unitSelected = data->regs.selectedUnit;            
+            data->seekCondition.bits.unitSelected = data->regs.selectedUnit;
             value = data->seekCondition.raw;
 
             /*
@@ -207,7 +207,7 @@ static uint16_t SMD_Read(Device *self, uint32_t address)
             // Bits 14, Always 0
 
             // Bits 14 - Always 0 in the new - To distinguish from the old HD-100 SMD controller
-            if ((data->controllerType == CONTR_SMD_15MHZ) || (data->controllerType == CONTR_SMD_10MHZ))
+            if ((data->controllerType == CONTR_BIG_DISC) || (data->controllerType == CONTR_ECC_DISC))
                 data->regs.eccPatternRegister |= (1 << 14);
 
             // Bits 15, Always 1
@@ -215,12 +215,12 @@ static uint16_t SMD_Read(Device *self, uint32_t address)
 
             value = data->regs.eccPatternRegister;
 
-            //printf("SMD::SMD_ReadStatusRegister ECC alled [%o] = %o\n", address, value);
+            // printf("SMD::SMD_ReadStatusRegister ECC alled [%o] = %o\n", address, value);
         }
         else
         {
             // hardwareError =  inclusive or of errror conditions (bits 5,6,7,8 and 13)
-            data->statusRegister.bits.hardwareError = 
+            data->statusRegister.bits.hardwareError =
                 data->statusRegister.bits.illegalLoad |
                 data->statusRegister.bits.timeOut |
                 data->statusRegister.bits.comparerError |
@@ -239,11 +239,11 @@ static uint16_t SMD_Read(Device *self, uint32_t address)
             }
 
             value = data->statusRegister.raw;
-           
-            //printf("SMD::SMD_ReadStatusRegister called [%o] = %o\n", address, value);
 
-            ClearFlipFlops(&data->regs);                     
-        }        
+            // printf("SMD::SMD_ReadStatusRegister called [%o] = %o\n", address, value);
+
+            ClearFlipFlops(&data->regs);
+        }
         break;
 
     case SMD_READ_BLOCK_ADDRESS:
@@ -297,7 +297,7 @@ static void SMD_Write(Device *self, uint32_t address, uint16_t value)
         {
             // Load Memory Address
             if (data->controlRegister.bits.active)
-            {                
+            {
                 HandleError(self, DISK_ERR_ILLEGAL_WHILE_ACTIVE); // ILLEGAL_WHILE_DRIVE_IS_ACTIVE
                 return;
             }
@@ -324,8 +324,8 @@ static void SMD_Write(Device *self, uint32_t address, uint16_t value)
 
     case SMD_LOAD_BLOCK_ADDRESS:
         if (data->controlRegister.bits.active)
-        {            
-            HandleError(self, DISK_ERR_ILLEGAL_WHILE_ACTIVE); 
+        {
+            HandleError(self, DISK_ERR_ILLEGAL_WHILE_ACTIVE);
             return;
         }
 
@@ -371,7 +371,6 @@ static void SMD_Write(Device *self, uint32_t address, uint16_t value)
         data->statusRegister.bits.registerMultiplexBit = data->controlRegister.bits.registerMultiplexBit;
         data->statusRegister.bits.readyForTransfer = true;
 
-
         data->statusRegister.bits.interruptEnabled = data->controlRegister.bits.enableInterruptNotActive;
         data->statusRegister.bits.errorInterruptEnabled = data->controlRegister.bits.enableInterruptOnErrors;
         // Clear interrupt if not enabled
@@ -413,9 +412,9 @@ static void SMD_Write(Device *self, uint32_t address, uint16_t value)
 
             ClearFlipFlops(&data->regs);
             ClearErrors(self);
-            //printf("SMD::SMD_LoadControlWord ClearFlipFlops & ClearErrors\n");
+            // printf("SMD::SMD_LoadControlWord ClearFlipFlops & ClearErrors\n");
         }
- 
+
         if (data->regs.selectedDisk)
         {
             data->regs.selectedDisk->onCylinder = true;
@@ -432,7 +431,7 @@ static void SMD_Write(Device *self, uint32_t address, uint16_t value)
             data->regs.selectedDisk->onCylinder = 1;
             data->regs.selectedDisk->diskUnitNotReady = 0;
             ExecuteGO(self);
-            //printf("SMD::ExecuteGo returned\n");
+            // printf("SMD::ExecuteGo returned\n");
         }
         else
         {
@@ -462,9 +461,9 @@ static void SMD_Write(Device *self, uint32_t address, uint16_t value)
 
         Bit 2: Long
                         Used for maintenance purposes only. When 8 sector is read or writwen, the date field of the sector is extended by 64 bits (
-                        the length of the ECC appendage plus “end of record” byte). The date and the extra bits sre read into of written from the memory of the CPU.
+                        the length of the ECC appendage plus "end of record" byte). The date and the extra bits sre read into of written from the memory of the CPU.
                         This function i¢ used to diagnose the operation of the ECC circuits and can be used with the following Device Operations: MO, M1, M2 and M3.
-                        Thas bit is “echoed” in ECR bit 14.
+                        Thas bit is "echoed" in ECR bit 14.
 
         // NEW BITS FOR 15MHZ SMD DISK CONTROLLERS
 
@@ -501,7 +500,7 @@ static void SMD_Write(Device *self, uint32_t address, uint16_t value)
                 {
                     // Used for maintenance purposes only.
 
-                    // When a sector is read or written, the data field of the sector is extended by 64 bits (The length of the ECC pattern plus “End of Record" byte).
+                    // When a sector is read or written, the data field of the sector is extended by 64 bits (The length of the ECC pattern plus "End of Record" byte).
                     // The data and the extra bits are read into or written from the memory of the CPU. This function is used to diagnose the
                     // operation of the ECC circuits, and can be used with the following Device operations: M0, M1, M2, M3. This bit is "echoed" in ECR bit 14.
 
@@ -532,7 +531,7 @@ static void SMD_Write(Device *self, uint32_t address, uint16_t value)
             // For the 75 Mb disk, the maximum word count is 132000(45k); starting with the head and cylinder address equal to 0.
             // The Word Count is set to an integer multiple of the number of words in a sector when device operation is M0—M3.
 
-            //printf("SMD::SMD_LoadWordCounter called [%o] = %o\n", address, value);
+            // printf("SMD::SMD_LoadWordCounter called [%o] = %o\n", address, value);
 
             if ((data->regs.wcwFlipFlop) || (!data->regs.hasFlipFlops))
             {
@@ -550,11 +549,11 @@ static void SMD_Write(Device *self, uint32_t address, uint16_t value)
 }
 
 static uint16_t SMD_Tick(Device *self)
-{    
-    if (!self) return 0;
+{
+    if (!self)
+        return 0;
 
     Device_TickIODelay(self);
-        
 
 #if _wft_ // TODO: Remove this ??
     SMDData *data = (SMDData *)self->deviceData;
@@ -597,8 +596,57 @@ static uint16_t SMD_Ident(Device *self, uint16_t level)
     return 0;
 }
 
+static int SMD_Boot(Device *self, uint16_t device_id)
+{
+    SMDData *data = (SMDData *)self->deviceData;
+    ControllerRegs *regs = &data->regs;
+
+    regs->selectedUnit = 0;
+    regs->selectedDisk = &regs->disks[regs->selectedUnit];
+
+    // Open the disk file if neccesary
+    if (!data->regs.selectedDisk->file)
+    {
+        data->regs.selectedDisk->file = fopen(data->regs.selectedDisk->diskFileName, "rb+");
+        if (!data->regs.selectedDisk->file)
+        {
+            printf("Failed to open file %s\n", data->regs.selectedDisk->diskFileName);
+            HandleError(self, DISK_ERR_READ_ERROR); // READ_ERROR
+            return -1;
+        }
+    }
+
+    // Seek to the beginning of the disk
+    int seekRes = Device_IO_Seek(self, data->regs.selectedDisk->file, 0);
+    if (seekRes < 0)
+    {
+        printf("Failed to seek to the beginning of the disk\n");
+        HandleError(self, DISK_ERR_SEEK_ERROR); // SEEK_ERROR
+        return -1;
+    }
+    int wordCounter = 2048; // Load 2 KW of data from the disk (4096 bytes) to memory starting at address 0
+
+    for (int i = 0; i < wordCounter; i++)
+    {
+        // Read word from disk
+        uint32_t readData;
+        readData = Device_IO_ReadWord(self, data->regs.selectedDisk->file);
+        if (readData < 0)
+        {
+            HandleError(self, DISK_ERR_READ_ERROR); // READ_ERROR
+            return -1;
+        }
+
+        // Write to memory (DMA)
+        Device_DMAWrite(i, (uint16_t)readData);
+    }
+
+    // Return boot addrees. For BPUN this might be different!
+    return 0;
+}
+
 static void ExecuteGO(Device *self)
-{    
+{
 
 #ifdef DEBUG_DETAIL
     printf("SMD::ExecuteGO called\n");
@@ -638,7 +686,7 @@ static void ExecuteGO(Device *self)
          head >= data->regs.selectedDisk->maxCylinders ||
          sector >= data->regs.selectedDisk->sectorsPrTrack) &&
         !data->controlRegister.bits.testMode)
-    {        
+    {
         HandleError(self, DISK_ERR_ADDRESS_MISMATCH); // ADDRESS_MISMATCH
         return;
     }
@@ -653,8 +701,7 @@ static void ExecuteGO(Device *self)
         return;
     }
 
-    
-    if (!data->regs.selectedDisk->file )
+    if (!data->regs.selectedDisk->file)
     {
         data->regs.selectedDisk->file = fopen(data->regs.selectedDisk->diskFileName, "rb+");
         if (!data->regs.selectedDisk->file)
@@ -663,15 +710,16 @@ static void ExecuteGO(Device *self)
             HandleError(self, DISK_ERR_READ_ERROR); // READ_ERROR
             return;
         }
-    }  
+    }
 
 #ifdef DEBUG_DETAIL
     printf("SMD::ExecuteGO Seek to %ld\n", position);
 #endif
 
-   
-    int seekRes = Device_IO_Seek(self, data->regs.selectedDisk->file , position);
-    if (seekRes < 0) {
+
+    int seekRes = Device_IO_Seek(self, data->regs.selectedDisk->file, position);
+    if (seekRes < 0)
+    {
 
 #ifdef DEBUG_DETAIL
         printf("SMD::ExecuteGO Seek failed\n");
@@ -684,10 +732,9 @@ static void ExecuteGO(Device *self)
     uint32_t coreAddress = (uint32_t)(data->regs.coreAddressHiBits << 16 | data->regs.coreAddress);
 
     if ((position == 387072) && (wordCounter == 9216))
-    {        
+    {
         printf("SMD::ExecuteGO WC[%d] Core Address [%d]\n", wordCounter, coreAddress);
     }
-
 
     // Handle different device operations
     switch (data->controlRegister.bits.deviceOperation)
@@ -701,7 +748,7 @@ static void ExecuteGO(Device *self)
         {
             // Read word from disk
             uint32_t readData;
-            readData = Device_IO_ReadWord(self, data->regs.selectedDisk->file );
+            readData = Device_IO_ReadWord(self, data->regs.selectedDisk->file);
             if (readData < 0)
             {
                 HandleError(self, DISK_ERR_READ_ERROR); // READ_ERROR
@@ -719,13 +766,13 @@ static void ExecuteGO(Device *self)
         break;
 
     case DEVICE_OP_WRITE_TRANSFER:
-        
+
 #ifdef DEBUG_HIGH_LEVEL
         printf("SMD::DEVICE_OP_WRITE_TRANSFER WC[%d] Core Address [%d]\n", wordCounter, coreAddress);
 #endif
         while (wordCounter > 0)
         {
-            // Read from memory (DMA)   
+            // Read from memory (DMA)
             uint32_t writeData;
             writeData = Device_DMARead(coreAddress);
 
@@ -735,11 +782,11 @@ static void ExecuteGO(Device *self)
                 return;
             }
             // Write word to disk
-            if (Device_IO_WriteWord(self, data->regs.selectedDisk->file , (uint16_t)writeData) < 0)
+            if (Device_IO_WriteWord(self, data->regs.selectedDisk->file, (uint16_t)writeData) < 0)
             {
                 HandleError(self, DISK_ERR_READ_ERROR); // WRITE_ERROR
                 return;
-            }            
+            }
 
             coreAddress = IncrementCoreAddress(regs);
             wordCounter = DecrementWordCounter(regs);
@@ -751,17 +798,18 @@ static void ExecuteGO(Device *self)
 
 #ifdef DEBUG_HIGH_LEVEL
         printf("SMD::DEVICE_OP_READ_PARITY WC[%d] Core Address [%d]\n", wordCounter, coreAddress);
-#endif        
+#endif
         // Read and check parity without transferring data
         while (wordCounter > 0)
         {
             // Read word from disk
             uint32_t readData;
-            readData = Device_IO_ReadWord(self, data->regs.selectedDisk->file );
+            readData = Device_IO_ReadWord(self, data->regs.selectedDisk->file);
             if (readData < 0)
             {
                 HandleError(self, DISK_ERR_READ_ERROR); // READ_ERROR
-                return;            }
+                return;
+            }
 
             coreAddress = IncrementCoreAddress(regs);
             wordCounter = DecrementWordCounter(regs);
@@ -774,17 +822,14 @@ static void ExecuteGO(Device *self)
 
 #ifdef DEBUG_HIGH_LEVEL
         printf("SMD::DEVICE_OP_COMPARE_TRANSFER WC[%d] Core Address [%d]\n", wordCounter, coreAddress);
-#endif        
+#endif
 
         while (wordCounter > 0)
         {
             // Read from disk
             uint16_t diskData;
-            if (fread(&diskData, sizeof(uint16_t), 1, regs->selectedDisk->file) != 1)
-            {
-                HandleError(self, DISK_ERR_READ_ERROR); // READ_ERROR
-                return;
-            }
+            
+            diskData = Device_IO_ReadWord(self, data->regs.selectedDisk->file);
 
             // Read from memory (DMA)
             int32_t memData;
@@ -806,10 +851,10 @@ static void ExecuteGO(Device *self)
 
     case DEVICE_OP_INITIATE_SEEK:
 #ifdef DEBUG_HIGH_LEVEL
-        printf("SMD::DEVICE_OP_INITIATE_SEEK: NOT IMPLEMENTED\n");
+        printf("SMD::DEVICE_OP_INITIATE_SEEK: %d\n", position);
 #endif
         // Seek operation initiated
-        data->seekCondition.bits.seekError =0;
+        data->seekCondition.bits.seekError = 0;
 
         Device_QueueIODelay(self, IODELAY_HDD_SMD, (IODelayedCallback)SMDReadEnd, data->regs.selectedDisk->unit, self->interruptLevel);
         break;
@@ -829,7 +874,7 @@ static void ExecuteGO(Device *self)
         printf("SMD::DEVICE_OP_SEEK_COMPLETE\n");
 #endif
         regs->selectedDisk->onCylinder = true;
-        data->seekCondition.bits.seekError =0;
+        data->seekCondition.bits.seekError = 0;
         data->seekCondition.bits.seekComplete = 1 << regs->selectedUnit;
 
         Device_QueueIODelay(self, IODELAY_HDD_SMD, (IODelayedCallback)SMDReadEnd, data->regs.selectedDisk->unit, self->interruptLevel);
@@ -839,7 +884,7 @@ static void ExecuteGO(Device *self)
 #ifdef DEBUG_HIGH_LEVEL
         printf("SMD::DEVICE_OP_RETURN_TO_ZERO\n");
 #endif
-        data->seekCondition.bits.seekError =0;
+        data->seekCondition.bits.seekError = 0;
         regs->selectedDisk->onCylinder = 1;
         data->seekCondition.bits.seekComplete = 1 << regs->selectedUnit;
 
@@ -911,17 +956,17 @@ static long ConvertCHStoLBA(ControllerRegs *regs, int cylinder, int head, int se
 
 static void ClearErrors(Device *self)
 {
-    if (!self) return ;
+    if (!self)
+        return;
     SMDData *data = (SMDData *)self->deviceData;
 
-    data->statusRegister.bits.hardwareError = 0;    
-    data->statusRegister.bits.hardwareError2 = 0;    
+    data->statusRegister.bits.hardwareError = 0;
+    data->statusRegister.bits.hardwareError2 = 0;
     data->statusRegister.bits.illegalLoad = 0;
     data->statusRegister.bits.timeOut = 0;
     data->statusRegister.bits.comparerError = 0;
     data->statusRegister.bits.addressMismatch = 0;
     data->seekCondition.bits.seekError = 0;
-    
 }
 static void SetSelectedUnit(ControllerRegs *regs, uint8_t unit)
 {
@@ -933,9 +978,9 @@ static void SetSelectedUnit(ControllerRegs *regs, uint8_t unit)
 
 static void HandleError(Device *self, DiskError error)
 {
-    if (!self) return;
+    if (!self)
+        return;
     SMDData *data = (SMDData *)self->deviceData;
-
 
 #ifdef DEBUG_DETAIL
     printf("SMD::HandleError called %d\n", error);
@@ -943,36 +988,36 @@ static void HandleError(Device *self, DiskError error)
     switch (error)
     {
     case DISK_ERR_NO_DISK_ATTACHED: // NO_DISK_ATTACHED
-        data->statusRegister.bits.diskUnitNotReady = 1; 
+        data->statusRegister.bits.diskUnitNotReady = 1;
         break;
 
     case DISK_ERR_ADDRESS_MISMATCH: // ADDRESS_MISMATCH
-        data->statusRegister.bits.addressMismatch = 1;         
+        data->statusRegister.bits.addressMismatch = 1;
         break;
 
     case DISK_ERR_SEEK_ERROR:
-        data->statusRegister.bits.diskUnitNotReady = 1; 
+        data->statusRegister.bits.diskUnitNotReady = 1;
         break;
 
     case DISK_ERR_READ_ERROR:
-        data->statusRegister.bits.diskUnitNotReady = 1; 
+        data->statusRegister.bits.diskUnitNotReady = 1;
         break;
 
     case DISK_ERR_COMPARER_ERROR:
-        data->statusRegister.bits.comparerError = 1; 
+        data->statusRegister.bits.comparerError = 1;
         break;
 
     case DISK_ERR_DRIVE_NOT_SELECTED: // DRIVE_NOT_SELECTED
-        data->statusRegister.bits.diskUnitNotReady = 1; 
+        data->statusRegister.bits.diskUnitNotReady = 1;
         break;
 
     case DISK_ERR_ILLEGAL_WHILE_ACTIVE: // ILLEGAL_WHILE_DRIVE_IS_ACTIVE
-        data->statusRegister.bits.illegalLoad = 1; 
+        data->statusRegister.bits.illegalLoad = 1;
         break;
 
     case DISK_ERR_WRITE_PROTECT_ERROR: // WRITE_PROTECT_ERROR
-        //regs->writeProtectError = true;
-        data->statusRegister.bits.diskUnitNotReady = 1; 
+        // regs->writeProtectError = true;
+        data->statusRegister.bits.diskUnitNotReady = 1;
         break;
     }
 }
@@ -1040,6 +1085,7 @@ Device *CreateSMDDevice(uint8_t thumbwheel)
     dev->Tick = SMD_Tick;
     dev->Reset = SMD_Reset;
     dev->Ident = SMD_Ident;
+    dev->Boot = SMD_Boot;
     // Initialize device state
     SMD_Reset(dev);
 
@@ -1097,3 +1143,217 @@ Device *CreateSMDDevice(uint8_t thumbwheel)
 
     return dev;
 }
+
+
+/*
+TPE>fun
+Disc name: disc-75-1
+Unit (0 to 3 oct): 0
+On this Disc type, Function will destroy data in the last
+cylinder in the spare track buffer pool !
+(Including the Alternative Track Table.)
+
+Do you still want to continue (YES or NO): Y
+
+  1. Data way to controller test  === End of test ===
+  2. Memory Address Register test === End of test ===
+  3. Block Address Register test  === End of test ===
+  4. Test-Mode test
+Error after Compare-In-Test-Mode
+Status and Failing Bits:  040010 001020
+=== End of test ===
+  5. Status Register bits test
+Error after Return-To-Zero Seek, Bit 16b (on cylinder) remained 1 !
+   Status 040070b, Unit 0
+   - Controller finished
+   - Illegal load, i.e. load while status bit 2 is true
+
+
+Error. Status bit 14b is 0 when Bit 5b is 1 !
+   Status 040070b, Unit 0
+   - Controller finished
+   - Illegal load, i.e. load while status bit 2 is true
+
+
+Error after Write Format Word Count 10000b, Bit 6b (timeout) became 0.
+   Status 040070b, Unit 0
+   - Controller finished
+   - Illegal load, i.e. load while status bit 2 is true
+
+
+Error after Read (from NOT specified unit), Status Bit 7b is 0 !
+
+   Status 040474b, Unit 4
+   - Controller active
+   - Controller finished
+   - Illegal load, i.e. load while status bit 2 is true
+   - Address mismatch
+
+
+Error after Write-Incorrect-Format
+   Status 040474b, Unit 0
+   - Controller active
+   - Controller finished
+   - Illegal load, i.e. load while status bit 2 is true
+   - Address mismatch
+
+
+Error after Read (parity error expected), Status Bit 11b is 0 !
+   Status 040474b, Unit 0
+   - Controller active
+   - Controller finished
+   - Illegal load, i.e. load while status bit 2 is true
+   - Address mismatch
+
+
+Error after Read
+   Status 040474b, Unit 0
+   - Controller active
+   - Controller finished
+   - Illegal load, i.e. load while status bit 2 is true
+   - Address mismatch
+
+
+Error after Read (overrun expected), Status Bit 13b remains 0 !        7)
+   Status 040474b, Unit 0
+   - Controller active
+   - Controller finished
+   - Illegal load, i.e. load while status bit 2 is true
+   - Address mismatch
+
+
+Error after Write (overrun expected), Status Bit 13b remains 0 !        7)
+   Status 040474b, Unit 0
+   - Controller active
+   - Controller finished
+   - Illegal load, i.e. load while status bit 2 is true
+   - Address mismatch
+
+
+Error. Status bit 15b became 0 (Unit ready) after selection.
+   Status 040474b, Unit 1
+   - Controller active
+   - Controller finished
+   - Illegal load, i.e. load while status bit 2 is true
+   - Address mismatch
+
+
+Error. Status bit 15b became 0 (Unit ready) after selection.
+   Status 040474b, Unit 2
+   - Controller active
+   - Controller finished
+   - Illegal load, i.e. load while status bit 2 is true
+   - Address mismatch
+
+
+Error. Status bit 15b became 0 (Unit ready) after selection.
+   Status 040474b, Unit 3
+   - Controller active
+   - Controller finished
+   - Illegal load, i.e. load while status bit 2 is true
+   - Address mismatch
+
+
+Error after Initiate Seek,
+status bit 16b (on cylinder) became 1 immediately.
+   Status 040474b, Unit 0
+   - Controller active
+   - Controller finished
+   - Illegal load, i.e. load while status bit 2 is true
+   - Address mismatch
+
+
+Error. Status bit 17b became 0 !
+=== End of test ===
+  6. Operation test
+***ERROR***
+   Status 040474b
+   - Controller active
+   - Controller finished
+   - Illegal load, i.e. load while status bit 2 is true
+   - Address mismatch
+
+
+Error. Not on-cylinder, or active.
+   Status 040474b, Unit 0
+   - Controller active
+   - Controller finished
+   - Illegal load, i.e. load while status bit 2 is true
+   - Address mismatch
+
+
+Error after Read
+   Status 040474b, Unit 0
+   - Controller active
+   - Controller finished
+   - Illegal load, i.e. load while status bit 2 is true
+   - Address mismatch
+
+
+Error after Write
+   Status 040474b, Unit 0
+   - Controller active
+   - Controller finished
+   - Illegal load, i.e. load while status bit 2 is true
+   - Address mismatch
+
+
+Error after Read
+   Status 040474b, Unit 0
+   - Controller active
+   - Controller finished
+   - Illegal load, i.e. load while status bit 2 is true
+   - Address mismatch
+
+
+WRITE DOES NOT WORK (?).
+After read data, complement it, write it back, read it again,
+the second block of data is equal to the first !!
+
+READ OR WRITE DOES NOT WORK (?).
+After read data, complement it, write it back, read it again,
+the complement of the second block of data is unequal to the first !!
+Seek Complete Search (with no previous seek),
+Status Bit 2b (active) remained 1 !!
+   Status 040474b, Unit 0
+   - Controller active
+   - Controller finished
+   - Illegal load, i.e. load while status bit 2 is true
+   - Address mismatch
+
+=== End of test ===
+  7. Read-Seek-Condition test
+***ERROR***
+   Status 040474b
+   - Controller active
+   - Controller finished
+   - Illegal load, i.e. load while status bit 2 is true
+   - Address mismatch
+
+
+Error. Not on-cylinder, or active.
+   Status 040474b, Unit 0
+   - Controller active
+   - Controller finished
+   - Illegal load, i.e. load while status bit 2 is true
+   - Address mismatch
+
+
+Error after READ-SEEK-Condition, for a specified unit,
+Bits 12b-10b (unit no.) are incorrect.
+Seek-Condition 000001 Unit No.: 0
+
+
+Error after READ-SEEK-Condition, for a specified unit,
+With no previous Initiate-Seek,
+Bits 7b-0b (Seek-Complete) are nonzero !
+Seek-Condition 000001 Unit No.: 0
+
+
+Error after READ-SEEK-Condition, for a specified unit,
+With previous illegal block address,
+Bit 13b (Seek Error) is 0 !
+Seek-Condition 010401 Unit No.: 0
+
+=== End of test ===
+*/
