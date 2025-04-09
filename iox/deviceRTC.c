@@ -48,7 +48,7 @@ static void RTC_ClearClockTicks(Device *self) {
     data->rtcCounter = data->divisionNumberN;
 
 #ifdef DEBUG_RTC
-    printf("RTC_ClearClockTicks: %d\n", data->rtcCounter);
+//    printf("RTC_ClearClockTicks: %d\n", data->rtcCounter);
 #endif
 }
 
@@ -143,9 +143,10 @@ static void RTC_Write(Device *self, uint32_t address, uint16_t value) {
             }
 
 
-            // Clear ready for transfer if requested
+            // Clear ready for transfer if requested and clear interrupt bit 13 (Needed for testprogram TPE Monitor version B)
             if (data->controlRegister.bits.clearReadyForTransfer) {
                 data->statusRegister.bits.readyForTransfer = 0;
+                self->interruptBits &= ~(1 << 13);
             }
 
             // Clear external hold signal if requested
@@ -181,6 +182,12 @@ static uint16_t RTC_Ident(Device *self, uint16_t level) {
         Device_SetInterruptStatus(self, false, level);
         return self->identCode;
     }
+#ifdef DEBUG_RTC    
+    else
+    {
+        printf("RTC_Ident: interrupt not set\n");
+    }
+#endif       
     return 0;
 }
 
